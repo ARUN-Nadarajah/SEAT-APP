@@ -1,98 +1,134 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Redirect } from "expo-router";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { ThemedText } from "@/components/themed-text";
+import { useAuth } from "@/features/auth/auth-context";
+import { authTheme } from "@/features/auth/auth-theme";
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+export default function SplashScreen() {
+  const { isHydrating, isAuthenticated } = useAuth();
+
+  if (!isHydrating) {
+    return <Redirect href={(isAuthenticated ? "/home" : "/login") as never} />;
   }
-  if (Device.isDevice) {
-    return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
-    );
-  }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
-  return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
 
-export default function HomeScreen() {
   return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
+    <SafeAreaView style={styles.container}>
+      <View style={styles.glowTop} />
+      <View style={styles.glowBottom} />
+      <View style={styles.content}>
+        <View style={styles.brandMark}>
+          <ThemedText type="smallBold" style={styles.brandMarkText}>
+            S
           </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
+        </View>
+        <ThemedText type="title" style={styles.title}>
+          Seat
         </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-          />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        <ThemedText type="default" style={styles.subtitle}>
+          Elegant dining, reserved with clarity.
+        </ThemedText>
+        <View style={styles.loadingRow}>
+          <ActivityIndicator color={authTheme.colors.burgundy} />
+          <ThemedText type="small" style={styles.loadingText}>
+            Authenticating your session
+          </ThemedText>
+        </View>
+        <Pressable style={styles.footerPill}>
+          <ThemedText type="smallBold" style={styles.footerText}>
+            Premium restaurant experience
+          </ThemedText>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
+    backgroundColor: authTheme.colors.ivory,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
   },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
+  content: {
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "center",
+    gap: 18,
+    paddingVertical: 28,
+    paddingHorizontal: 24,
+    borderRadius: 28,
+    backgroundColor: authTheme.colors.surface,
+    shadowColor: authTheme.colors.burgundy,
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 4,
   },
-  heroSection: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+  glowTop: {
+    position: "absolute",
+    top: 90,
+    left: -40,
+    width: 180,
+    height: 180,
+    borderRadius: 180,
+    backgroundColor: "rgba(107, 30, 46, 0.08)",
+  },
+  glowBottom: {
+    position: "absolute",
+    bottom: 90,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 200,
+    backgroundColor: "rgba(217, 154, 43, 0.12)",
+  },
+  brandMark: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: authTheme.colors.burgundy,
+  },
+  brandMarkText: {
+    color: authTheme.colors.ivory,
+    fontSize: 24,
   },
   title: {
-    textAlign: 'center',
+    color: authTheme.colors.burgundy,
+    textAlign: "center",
+    fontSize: 44,
+    lineHeight: 48,
   },
-  code: {
-    textTransform: 'uppercase',
+  subtitle: {
+    color: authTheme.colors.textMuted,
+    textAlign: "center",
+    maxWidth: 300,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
+  loadingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingTop: 4,
+  },
+  loadingText: {
+    color: authTheme.colors.textMuted,
+  },
+  footerPill: {
+    marginTop: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: authTheme.colors.cream,
+    borderWidth: 1,
+    borderColor: "rgba(107, 30, 46, 0.08)",
+  },
+  footerText: {
+    color: authTheme.colors.burgundy,
+    letterSpacing: 0.4,
   },
 });
