@@ -36,18 +36,33 @@ async function loadSession(): Promise<AuthSession | null> {
   }
 }
 
-function extractAuthData(response: unknown): { token: string; user: AuthUser } {
-  const payload = response as { token?: string; user?: AuthUser };
+function extractAuthData(response: unknown): {
+  token: string;
+  refreshToken?: string;
+  user: AuthUser;
+} {
+  const payload = response as {
+    token?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    user?: AuthUser;
+  };
 
-  if (!payload.token || !payload.user) {
+  const token = payload.token || payload.accessToken;
+
+  if (!token || !payload.user) {
     throw new Error('Authentication response was incomplete.');
   }
 
-  return { token: payload.token, user: payload.user };
+  return { token, refreshToken: payload.refreshToken, user: payload.user };
 }
 
-function buildSession(token: string, user: AuthUser): AuthSession {
-  return { token, user };
+function buildSession(
+  token: string,
+  user: AuthUser,
+  refreshToken?: string,
+): AuthSession {
+  return { token, user, refreshToken };
 }
 
 async function saveResetEmail(email: string | null) {
@@ -78,7 +93,11 @@ export async function hydrateAuth(): Promise<AuthHydration> {
       throw new Error("Profile response was empty.");
     }
 
-    const refreshedSession = buildSession(session.token, response.data.user);
+    const refreshedSession = buildSession(
+      session.token,
+      response.data.user,
+      session.refreshToken,
+    );
     await saveSession(refreshedSession);
 
     return { session: refreshedSession, user: response.data.user };
@@ -93,10 +112,12 @@ export async function requestRegisterOtp(input: {
   email: string;
   phone: string;
   password: string;
+  /** Spec §5: role selection for demo accounts. */
+  role?: 'customer' | 'staff' | 'manager';
 }): Promise<{ challenge: AuthOtpChallenge; message: string }> {
   const response = await apiRequest<AuthOtpChallenge>("/auth/register/request-otp", {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, role: input.role || 'customer' }),
   });
 
   return {
@@ -111,8 +132,8 @@ export async function loginWithPassword(email: string, password: string): Promis
     body: JSON.stringify({ email, password }),
   });
 
-  const { token, user } = extractAuthData(response.data);
-  const session = buildSession(token, user);
+  const { token, user, refreshToken } = extractAuthData(response.data);
+  const session = buildSession(token, user, refreshToken);
   await saveSession(session);
 
   return {
@@ -128,8 +149,8 @@ export async function verifyRegisterOtp(email: string, otp: string): Promise<Aut
     body: JSON.stringify({ email, otp }),
   });
 
-  const { token, user } = extractAuthData(response.data);
-  const session = buildSession(token, user);
+  const { token, user, refreshToken } = extractAuthData(response.data);
+  const session = buildSession(token, user, refreshToken);
   await saveSession(session);
 
   return {
@@ -159,8 +180,8 @@ export async function verifyPasswordResetOtp(email: string, otp: string, newPass
     body: JSON.stringify({ email, otp, newPassword }),
   });
 
-  const { token, user } = extractAuthData(response.data);
-  const session = buildSession(token, user);
+  const { token, user, refreshToken } = extractAuthData(response.data);
+  const session = buildSession(token, user, refreshToken);
   await saveSession(session);
   await saveResetEmail(null);
 

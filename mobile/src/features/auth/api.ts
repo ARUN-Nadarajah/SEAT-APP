@@ -10,7 +10,7 @@ function getApiBaseUrl() {
   const explicitUrl = process.env.EXPO_PUBLIC_API_URL;
   const expoUrl = Constants.expoConfig?.extra?.apiUrl;
 
-  return (explicitUrl || expoUrl || 'http://localhost:5001/api').replace(/\/$/, '');
+  return (explicitUrl || expoUrl || 'http://localhost:5000/api').replace(/\/$/, '');
 }
 
 async function parseResponse<T>(response: Response): Promise<ApiResponse<T>> {

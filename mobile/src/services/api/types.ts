@@ -1,0 +1,240 @@
+/**
+ * Domain types mirroring the backend responses (spec §6/§7).
+ * Keeping them in one place means screens share exactly one shape per entity.
+ */
+
+export type LastUpdated = { lastUpdated?: string };
+
+export type WaitEstimate = {
+  minutes: number;
+  min: number;
+  max: number;
+  label: string;
+};
+
+export type RestaurantCard = {
+  id: string;
+  name: string;
+  cuisine: string;
+  description: string;
+  image: string;
+  images: string[];
+  rating: number;
+  reviewCount: number;
+  priceRange: string;
+  address: string;
+  city: string;
+  distanceMeters: number;
+  openHoursLabel: string;
+  parking: boolean;
+  parkingLabel: string;
+  isQueueEnabled: boolean;
+  /** "Tonight from 7:00 PM" (FR01). */
+  firstSlotLabel: string;
+  /** "15–25 min walk-in wait" (FR01). */
+  walkInWaitLabel: string;
+  availableTables: number;
+  availabilityStatus: 'available' | 'limited' | 'fully-booked';
+  queueLength: number;
+} & LastUpdated;
+
+export type Availability = {
+  totalTables: number;
+  availableTables: number;
+  availableSlots: number;
+  isFullyBooked: boolean;
+  queueLength: number;
+  firstSlot: { time: string; label: string } | null;
+  firstSlotLabel: string;
+  walkInWait: WaitEstimate & { label: string };
+  status: 'available' | 'limited' | 'fully-booked';
+} & LastUpdated;
+
+export type TimeSlot = {
+  time: string;
+  timeLabel: string;
+  available: boolean;
+  availableTables: number;
+  tableIds: string[];
+};
+
+export type RestaurantDetail = RestaurantCard & {
+  openingTime: string;
+  closingTime: string;
+  phone: string;
+  location: { lat: number; lng: number };
+  averageSeatingMinutes: number;
+  availability: Availability;
+  slots: TimeSlot[];
+};
+
+export type MenuItem = {
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  isVegetarian: boolean;
+  isPopular?: boolean;
+};
+
+export type Menu = {
+  restaurant: { id: string; name: string };
+  categories: { name: string; items: MenuItem[] }[];
+  items: MenuItem[];
+};
+
+export type ReservationStatus =
+  | 'confirmed'
+  | 'checked-in'
+  | 'cancelled'
+  | 'completed'
+  | 'no-show';
+
+export type Booking = {
+  id: string;
+  bookingId: string;
+  status: ReservationStatus;
+  partySize: number;
+  date: string;
+  time: string;
+  endTime: string;
+  guestName: string;
+  specialRequest: string;
+  tableNumber: string;
+  tableCapacity: number | null;
+  restaurant: {
+    id: string;
+    name: string;
+    cuisine: string;
+    image: string;
+    address: string;
+    city: string;
+    rating: number;
+  } | null;
+  createdAt: string;
+  checkedInAt?: string | null;
+  cancelledAt?: string | null;
+  /** Staff list only. */
+  guest?: { name: string; phone: string; email: string };
+};
+
+export type BookingList = {
+  upcoming: Booking[];
+  past: Booking[];
+  all: Booking[];
+} & LastUpdated;
+
+export type SlotAlternative = { time: string; label: string };
+
+export type QueueStage = 'joined' | 'getting-closer' | 'table-ready';
+
+export type QueueEntry = {
+  id: string;
+  queueCode: string;
+  restaurantId: string;
+  restaurant: {
+    id: string;
+    name: string;
+    address: string;
+    image: string;
+  } | null;
+  partySize: number;
+  position: number;
+  partiesAhead: number;
+  status: 'waiting' | 'notified' | 'seated' | 'left' | 'no-show';
+  stage: QueueStage;
+  estimatedWait: number;
+  estimateLabel: string;
+  estimatedWaitLabel: string;
+  guestName: string;
+  heldTableNumber: string;
+  joinedAt: string;
+  notifiedAt: string | null;
+  seatedAt: string | null;
+} & LastUpdated;
+
+export type QueuePreview = {
+  restaurantId: string;
+  restaurantName: string;
+  queueLength: number;
+  partiesAhead: number;
+  isQueueEnabled: boolean;
+  minutes: number;
+  min: number;
+  max: number;
+  label: string;
+  estimatedWaitLabel: string;
+  freeTables: number;
+} & LastUpdated;
+
+export type StaffQueueRow = {
+  id: string;
+  queueCode: string;
+  partySize: number;
+  position: number;
+  status: QueueEntry['status'];
+  estimatedWait: number;
+  estimateLabel: string;
+  guestName: string;
+  guestPhone: string;
+  heldTableNumber: string;
+  joinedAt: string;
+  notifiedAt: string | null;
+  seatedAt: string | null;
+};
+
+export type TableStatus = 'available' | 'occupied' | 'reserved' | 'maintenance';
+
+export type Table = {
+  id: string;
+  _id?: string;
+  tableNumber: string;
+  capacity: number;
+  location: string;
+  status: TableStatus;
+  statusChangedAt?: string;
+  isActive: boolean;
+};
+
+export type TableSummary = {
+  total: number;
+  available: number;
+  occupied: number;
+  reserved: number;
+  maintenance: number;
+};
+
+export type AppNotification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  route: string;
+  data: Record<string, unknown>;
+  channel: string;
+  createdAt: string;
+};
+
+export type ManagerStats = {
+  totalReservations: number;
+  noShows: number;
+  cancelled: number;
+  checkedIn: number;
+  confirmed: number;
+  avgWaitMinutes: number;
+  avgWaitLabel: string;
+  avgPartySize: number;
+  walkIns: number;
+  tableSummary: TableSummary;
+  changeVsYesterday: string;
+  date: string;
+} & LastUpdated;
+
+export type HourlyBucket = {
+  hour: number;
+  label: string;
+  reservations: number;
+  seated: number;
+  avgWait: number;
+};

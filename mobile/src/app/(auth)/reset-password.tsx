@@ -52,12 +52,6 @@ export default function ResetPasswordScreen() {
     refreshPendingResetEmail().catch(() => undefined);
   }, [refreshPendingResetEmail]);
 
-  useEffect(() => {
-    if (typeof params.email === "string" && params.email !== email) {
-      setEmail(params.email);
-    }
-  }, [params.email]);
-
   async function handleResetPassword() {
     const nextErrors = {
       email: validateAuthEmail(email),
@@ -147,8 +141,8 @@ export default function ResetPasswordScreen() {
           }}
           placeholder="6-digit code"
           keyboardType="number-pad"
-          autoComplete="one-time-code"
-          textContentType="oneTimeCode"
+          autoComplete={'one-time-code' as never}
+          textContentType={'oneTimeCode' as never}
           errorMessage={fieldErrors.otp}
           helperText="Enter the one-time code that was emailed to you."
         />

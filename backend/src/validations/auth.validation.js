@@ -75,12 +75,30 @@ function assertOtp(otp) {
   return value;
 }
 
+const ROLES = ["customer", "staff", "manager"];
+
+function assertRole(role) {
+  const value = String(role || "customer").trim().toLowerCase();
+
+  if (!ROLES.includes(value)) {
+    throw new AppError(
+      "Please choose a valid account role.",
+      400,
+      "validation_error",
+    );
+  }
+
+  return value;
+}
+
 function validateRegisterRequest(payload) {
   return {
     fullName: assertName(payload.fullName),
     email: assertEmail(payload.email),
     phone: assertPhone(payload.phone),
     password: assertPassword(payload.password),
+    // Spec §5: the Register screen offers "role selection for demo".
+    role: assertRole(payload.role),
   };
 }
 
@@ -119,6 +137,8 @@ module.exports = {
   assertName,
   assertPhone,
   assertOtp,
+  assertRole,
+  ROLES,
   validateRegisterRequest,
   validateLoginRequest,
   validateEmailOnlyRequest,

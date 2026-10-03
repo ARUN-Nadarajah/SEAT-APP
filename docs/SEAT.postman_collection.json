@@ -1,0 +1,523 @@
+{
+  "info": {
+    "name": "SEAT API",
+    "description": "Restaurant Table Reservation & Virtual Queue — IT3060 Group 181.\n\n1. Run `npm run seed` in /backend, then start the server (`npm run dev`).\n2. POST /api/auth/login with customer@seat.lk / Password123! and paste the\n   accessToken into the collection variable `{{token}}`.\n3. Staff and manager flows need `{{staffToken}}` / `{{managerToken}}`.\n4. Set `{{restaurantId}}` from GET /api/restaurants.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api" },
+    { "key": "socketUrl", "value": "http://localhost:5000" },
+    { "key": "token", "value": "" },
+    { "key": "staffToken", "value": "" },
+    { "key": "managerToken", "value": "" },
+    { "key": "restaurantId", "value": "" },
+    { "key": "reservationId", "value": "" },
+    { "key": "bookingDate", "value": "2026-10-04" },
+    { "key": "bookingTime", "value": "19:30" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/../health"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login — customer",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('token', json.data.accessToken);",
+                  "console.log('customer token saved');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"customer@seat.lk\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Login — staff",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('staffToken', json.data.accessToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"staff@seat.lk\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Login — manager",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "pm.collectionVariables.set('managerToken', json.data.accessToken);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"manager@seat.lk\",\n  \"password\": \"Password123!\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/login"
+          }
+        },
+        {
+          "name": "Refresh token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"<paste refreshToken from login>\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/refresh"
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/auth/me"
+          }
+        },
+        {
+          "name": "Update notification preferences",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"notificationPrefs\": { \"email\": true, \"sms\": false }\n}"
+            },
+            "url": "{{baseUrl}}/auth/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Restaurants",
+      "item": [
+        {
+          "name": "List with availability (FR01)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data[0]) {",
+                  "  pm.collectionVariables.set('restaurantId', json.data[0].id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/restaurants?tonight=1&partySize=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants"],
+              "query": [
+                { "key": "tonight", "value": "1" },
+                { "key": "partySize", "value": "2" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/search?q=Palmyra",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "search"],
+              "query": [{ "key": "q", "value": "Palmyra" }]
+            }
+          }
+        },
+        {
+          "name": "Details",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/restaurants/{{restaurantId}}"
+          }
+        },
+        {
+          "name": "Available slots (FR02)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/restaurants/{{restaurantId}}/slots?date={{bookingDate}}&partySize=4",
+              "host": ["{{baseUrl}}"],
+              "path": ["restaurants", "{{restaurantId}}", "slots"],
+              "query": [
+                { "key": "date", "value": "{{bookingDate}}" },
+                { "key": "partySize", "value": "4" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Menu",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/restaurants/{{restaurantId}}/menu"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reservations",
+      "item": [
+        {
+          "name": "Create booking (FR02)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.data && json.data.reservation) {",
+                  "  pm.collectionVariables.set('reservationId', json.data.reservation.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"date\": \"{{bookingDate}}\",\n  \"time\": \"{{bookingTime}}\",\n  \"partySize\": 4,\n  \"guestName\": \"Anjali Rasiah\",\n  \"specialRequest\": \"Window seat if possible\"\n}"
+            },
+            "url": "{{baseUrl}}/reservations"
+          }
+        },
+        {
+          "name": "My bookings",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/reservations"
+          }
+        },
+        {
+          "name": "Get one booking",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/reservations/{{reservationId}}"
+          }
+        },
+        {
+          "name": "Change reservation (FR07)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"partySize\": 6,\n  \"time\": \"20:00\"\n}" },
+            "url": "{{baseUrl}}/reservations/{{reservationId}}"
+          }
+        },
+        {
+          "name": "Cancel reservation (FR07)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Plans changed\"\n}" },
+            "url": "{{baseUrl}}/reservations/{{reservationId}}"
+          }
+        },
+        {
+          "name": "Staff list + search (FR09)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/reservations/staff?restaurantId={{restaurantId}}&q=",
+              "host": ["{{baseUrl}}"],
+              "path": ["reservations", "staff"],
+              "query": [
+                { "key": "restaurantId", "value": "{{restaurantId}}" },
+                { "key": "q", "value": "" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check in (FR09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\"\n}" },
+            "url": "{{baseUrl}}/reservations/{{reservationId}}/check-in"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Queue",
+      "item": [
+        {
+          "name": "Preview wait (FR04)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/queue/preview?restaurantId={{restaurantId}}&partySize=2",
+              "host": ["{{baseUrl}}"],
+              "path": ["queue", "preview"],
+              "query": [
+                { "key": "restaurantId", "value": "{{restaurantId}}" },
+                { "key": "partySize", "value": "2" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Join queue (FR03)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"partySize\": 4,\n  \"guestName\": \"Anjali Rasiah\"\n}"
+            },
+            "url": "{{baseUrl}}/queue/join"
+          }
+        },
+        {
+          "name": "My active entry (FR05)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/queue/mine"
+          }
+        },
+        {
+          "name": "Leave queue",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/queue/<entryId>"
+          }
+        },
+        {
+          "name": "Staff queue list (FR09)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/queue/staff/list?restaurantId={{restaurantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["queue", "staff", "list"],
+              "query": [{ "key": "restaurantId", "value": "{{restaurantId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Call next party (FR06)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\"\n}" },
+            "url": "{{baseUrl}}/queue/staff/call-next"
+          }
+        },
+        {
+          "name": "Seat party (FR09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\"\n}" },
+            "url": "{{baseUrl}}/queue/staff/<entryId>/seat"
+          }
+        },
+        {
+          "name": "Remove no-show (FR09)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restaurantId\": \"{{restaurantId}}\",\n  \"reason\": \"no-show\"\n}"
+            },
+            "url": "{{baseUrl}}/queue/staff/<entryId>/remove"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tables",
+      "item": [
+        {
+          "name": "Floor plan (FR08)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{staffToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/tables?restaurantId={{restaurantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tables"],
+              "query": [{ "key": "restaurantId", "value": "{{restaurantId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Update table status (FR08)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{staffToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"occupied\"\n}" },
+            "url": "{{baseUrl}}/tables/<tableId>/status"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Manager",
+      "item": [
+        {
+          "name": "Stats (FR10)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/manager/stats?restaurantId={{restaurantId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["manager", "stats"],
+              "query": [{ "key": "restaurantId", "value": "{{restaurantId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Daily breakdown",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{managerToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/manager/daily?restaurantId={{restaurantId}}&days=7",
+              "host": ["{{baseUrl}}"],
+              "path": ["manager", "daily"],
+              "query": [
+                { "key": "restaurantId", "value": "{{restaurantId}}" },
+                { "key": "days", "value": "7" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "List (FR06)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/notifications"
+          }
+        },
+        {
+          "name": "Mark all read",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": "{{baseUrl}}/notifications/read-all"
+          }
+        },
+        {
+          "name": "Register push token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"pushToken\": \"ExpoPushToken[xxxxxxxx]\"\n}" },
+            "url": "{{baseUrl}}/notifications/push-token"
+          }
+        }
+      ]
+    }
+  ]
+}

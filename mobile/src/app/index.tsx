@@ -1,134 +1,116 @@
-import { Redirect } from "expo-router";
-import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Redirect } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ThemedText } from "@/components/themed-text";
-import { useAuth } from "@/features/auth/auth-context";
-import { authTheme } from "@/features/auth/auth-theme";
+import { AppText } from '@/components/ui';
+import { useAuth } from '@/features/auth/auth-context';
+import { colors, spacing } from '@/theme';
 
+const ONBOARDING_KEY = 'seat-app.onboarding.seen.v1';
+
+/** Where each role lands after signing in (spec §2: role-based navigation). */
+export function homePathForRole(role?: string | null): string {
+  if (role === 'staff') return '/(staff)';
+  if (role === 'manager') return '/(manager)';
+  return '/(tabs)/explore';
+}
+
+/** Marks onboarding as seen — called by the onboarding screen's actions. */
+export async function markOnboardingSeen() {
+  try {
+    await AsyncStorage.setItem(ONBOARDING_KEY, '1');
+  } catch {
+    /* non-fatal: worst case the user sees onboarding again */
+  }
+}
+
+export async function hasSeenOnboarding(): Promise<boolean> {
+  try {
+    return Boolean(await AsyncStorage.getItem(ONBOARDING_KEY));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Splash + bootstrap (spec §5).
+ *
+ * Shows the brand while we hydrate the session and check whether the 3-slide
+ * onboarding has been seen, then routes to the right place.
+ */
 export default function SplashScreen() {
-  const { isHydrating, isAuthenticated } = useAuth();
+  const { isHydrating, isAuthenticated, user } = useAuth();
+  const [seen, setSeen] = useState<boolean | null>(null);
 
-  if (!isHydrating) {
-    return <Redirect href={(isAuthenticated ? "/home" : "/login") as never} />;
+  useEffect(() => {
+    let mounted = true;
+    hasSeenOnboarding().then((value) => {
+      if (mounted) setSeen(value);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (isHydrating || seen === null) {
+    return <SplashView />;
   }
 
+  if (!seen) {
+    return <Redirect href="/onboarding" />;
+  }
+
+  if (!isAuthenticated) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  return <Redirect href={homePathForRole(user?.role) as never} />;
+}
+
+function SplashView() {
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.glowTop} />
-      <View style={styles.glowBottom} />
-      <View style={styles.content}>
-        <View style={styles.brandMark}>
-          <ThemedText type="smallBold" style={styles.brandMarkText}>
-            S
-          </ThemedText>
+    <SafeAreaView style={styles.root}>
+      <View style={styles.brand}>
+        <View style={styles.mark}>
+          <AppText style={styles.markGlyph}>S</AppText>
         </View>
-        <ThemedText type="title" style={styles.title}>
-          Seat
-        </ThemedText>
-        <ThemedText type="default" style={styles.subtitle}>
-          Elegant dining, reserved with clarity.
-        </ThemedText>
-        <View style={styles.loadingRow}>
-          <ActivityIndicator color={authTheme.colors.burgundy} />
-          <ThemedText type="small" style={styles.loadingText}>
-            Authenticating your session
-          </ThemedText>
-        </View>
-        <Pressable style={styles.footerPill}>
-          <ThemedText type="smallBold" style={styles.footerText}>
-            Premium restaurant experience
-          </ThemedText>
-        </Pressable>
+        <AppText variant="display" style={styles.title}>
+          SEAT
+        </AppText>
+        <AppText variant="secondary" style={styles.subtitle}>
+          Reserve a table. Skip the wait.
+        </AppText>
       </View>
+      <ActivityIndicator color={colors.primary} style={styles.spinner} />
+      <AppText variant="caption" style={styles.loading}>
+        Getting your table ready…
+      </AppText>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: authTheme.colors.ivory,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
   },
-  content: {
-    width: "100%",
-    maxWidth: 420,
-    alignItems: "center",
-    gap: 18,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
-    borderRadius: 28,
-    backgroundColor: authTheme.colors.surface,
-    shadowColor: authTheme.colors.burgundy,
-    shadowOpacity: 0.12,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 4,
+  brand: { alignItems: 'center', gap: spacing.sm },
+  mark: {
+    width: 84,
+    height: 84,
+    borderRadius: 26,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  glowTop: {
-    position: "absolute",
-    top: 90,
-    left: -40,
-    width: 180,
-    height: 180,
-    borderRadius: 180,
-    backgroundColor: "rgba(107, 30, 46, 0.08)",
-  },
-  glowBottom: {
-    position: "absolute",
-    bottom: 90,
-    right: -50,
-    width: 200,
-    height: 200,
-    borderRadius: 200,
-    backgroundColor: "rgba(217, 154, 43, 0.12)",
-  },
-  brandMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: authTheme.colors.burgundy,
-  },
-  brandMarkText: {
-    color: authTheme.colors.ivory,
-    fontSize: 24,
-  },
-  title: {
-    color: authTheme.colors.burgundy,
-    textAlign: "center",
-    fontSize: 44,
-    lineHeight: 48,
-  },
-  subtitle: {
-    color: authTheme.colors.textMuted,
-    textAlign: "center",
-    maxWidth: 300,
-  },
-  loadingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingTop: 4,
-  },
-  loadingText: {
-    color: authTheme.colors.textMuted,
-  },
-  footerPill: {
-    marginTop: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 999,
-    backgroundColor: authTheme.colors.cream,
-    borderWidth: 1,
-    borderColor: "rgba(107, 30, 46, 0.08)",
-  },
-  footerText: {
-    color: authTheme.colors.burgundy,
-    letterSpacing: 0.4,
-  },
+  markGlyph: { fontSize: 40, color: colors.accent, fontFamily: 'Fraunces_600SemiBold' },
+  title: { letterSpacing: 4 },
+  subtitle: { textAlign: 'center' },
+  spinner: { marginTop: spacing.xl },
+  loading: { color: colors.textMuted },
 });

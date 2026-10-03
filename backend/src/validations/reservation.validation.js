@@ -1,0 +1,125 @@
+const { AppError } = require("../utils/errors");
+const {
+  assertObjectId,
+  assertIntRange,
+  to24h,
+  toDate,
+} = require("../middleware/validation.middleware");
+
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+function assertTime(value) {
+  const normalised = to24h(value);
+  if (!normalised || !TIME_PATTERN.test(normalised)) {
+    throw new AppError(
+      "Please choose a valid time.",
+      400,
+      "validation_error",
+    );
+  }
+  return normalised;
+}
+
+function assertDate(value) {
+  const date = toDate(value);
+  if (!date) {
+    throw new AppError(
+      "Please choose a valid date (YYYY-MM-DD).",
+      400,
+      "validation_error",
+    );
+  }
+  return date;
+}
+
+function assertOptionalText(value, maxLength, fieldName) {
+  const text = String(value || "").trim();
+  if (text.length > maxLength) {
+    throw new AppError(
+      `${fieldName} must be ${maxLength} characters or fewer.`,
+      400,
+      "validation_error",
+    );
+  }
+  return text;
+}
+
+/** POST /api/reservations */
+function validateCreateReservation(payload = {}) {
+  return {
+    restaurantId: assertObjectId(payload.restaurantId, "restaurantId"),
+    date: assertDate(payload.date),
+    time: assertTime(payload.time),
+    partySize: assertIntRange(payload.partySize, {
+      min: 1,
+      max: 20,
+      fieldName: "Party size",
+    }),
+    guestName: assertOptionalText(payload.guestName, 80, "Guest name"),
+    guestPhone: assertOptionalText(payload.guestPhone, 30, "Phone number"),
+    specialRequest: assertOptionalText(
+      payload.specialRequest,
+      300,
+      "Special request",
+    ),
+    notes: assertOptionalText(payload.notes, 300, "Notes"),
+  };
+}
+
+/** PUT /api/reservations/:id — all fields optional (FR07). */
+function validateUpdateReservation(payload = {}) {
+  const result = {};
+
+  if (payload.restaurantId !== undefined) {
+    result.restaurantId = assertObjectId(payload.restaurantId, "restaurantId");
+  }
+  if (payload.date !== undefined) result.date = assertDate(payload.date);
+  if (payload.time !== undefined) result.time = assertTime(payload.time);
+  if (payload.partySize !== undefined) {
+    result.partySize = assertIntRange(payload.partySize, {
+      min: 1,
+      max: 20,
+      fieldName: "Party size",
+    });
+  }
+  if (payload.specialRequest !== undefined) {
+    result.specialRequest = assertOptionalText(
+      payload.specialRequest,
+      300,
+      "Special request",
+    );
+  }
+
+  return result;
+}
+
+/** GET /api/reservations — `?upcoming=1` */
+function validateReservationQuery(query = {}) {
+  const result = {};
+  if (query.status) result.status = String(query.status);
+  if (query.upcoming !== undefined) result.upcoming = query.upcoming === "true" || query.upcoming === "1";
+  return result;
+}
+
+/** GET /api/restaurants/staff?restaurantId=&date=&q= */
+function validateStaffListQuery(query = {}) {
+  return {
+    restaurantId: assertObjectId(
+      query.restaurantId || query.restaurant,
+      "restaurantId",
+    ),
+    date: query.date ? assertDate(query.date) : undefined,
+    q: String(query.q || "").trim().slice(0, 80),
+    status: query.status ? String(query.status) : "",
+  };
+}
+
+module.exports = {
+  assertTime,
+  assertDate,
+  assertOptionalText,
+  validateCreateReservation,
+  validateUpdateReservation,
+  validateReservationQuery,
+  validateStaffListQuery,
+};

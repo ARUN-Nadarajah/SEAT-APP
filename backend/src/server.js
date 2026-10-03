@@ -1,14 +1,22 @@
 require("dotenv").config();
 
+const http = require("http");
+
 const app = require("./app");
 const connectDB = require("./config/database");
 const { PORT } = require("./config/environment");
+const { createSocketServer } = require("./realtime/socket");
 
 const startServer = async () => {
   await connectDB();
 
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+  // Socket.IO shares the Express server so both APIs live on one port.
+  const server = http.createServer(app);
+  createSocketServer(server);
+
+  server.listen(PORT, () => {
+    console.log(`API + Socket.IO running on http://localhost:${PORT}`);
+    console.log(`Health check: http://localhost:${PORT}/health`);
   });
 };
 

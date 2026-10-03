@@ -1,0 +1,98 @@
+import { apiClient, type ApiEnvelope } from './client';
+import type { QueueEntry, QueuePreview, StaffQueueRow } from './types';
+
+/**
+ * Virtual queue (spec §7 / FR03–FR06, FR09).
+ */
+
+export async function fetchQueuePreview(restaurantId: string, partySize = 2) {
+  const { data } = await apiClient.get<ApiEnvelope<QueuePreview>>(
+    '/queue/preview',
+    { params: { restaurantId, partySize } },
+  );
+  return data;
+}
+
+export type JoinQueueInput = {
+  restaurantId: string;
+  partySize: number;
+  guestName?: string;
+  guestPhone?: string;
+};
+
+export async function joinQueue(input: JoinQueueInput) {
+  const { data } = await apiClient.post<ApiEnvelope<QueueEntry>>(
+    '/queue/join',
+    input,
+  );
+  return data;
+}
+
+/** Returns `data: null` when the customer is not in any queue (empty state). */
+export async function fetchMyQueue(restaurantId?: string) {
+  const { data } = await apiClient.get<ApiEnvelope<QueueEntry | null>>(
+    '/queue/mine',
+    { params: restaurantId ? { restaurantId } : undefined },
+  );
+  return data;
+}
+
+export async function leaveQueue(entryId: string) {
+  const { data } = await apiClient.delete(`/queue/${entryId}`);
+  return data;
+}
+
+/** FR09 — staff view of the live line. */
+export async function fetchStaffQueue(restaurantId: string) {
+  const { data } = await apiClient.get<ApiEnvelope<StaffQueueRow[]>>(
+    '/queue/staff/list',
+    { params: { restaurantId } },
+  );
+  return data;
+}
+
+export type CalledParty = {
+  entryId: string;
+  queueCode: string;
+  partySize: number;
+  guestName: string;
+  tableNumber: string;
+  tableCapacity: number | null;
+  notifiedAt: string;
+  status: string;
+};
+
+/** Promote the next party and tell them their table is ready (FR06). */
+export async function callNextParty(restaurantId: string) {
+  const { data } = await apiClient.post<ApiEnvelope<CalledParty>>(
+    '/queue/staff/call-next',
+    { restaurantId },
+  );
+  return data;
+}
+
+export async function notifyPartyReady(entryId: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/notify`, {
+    restaurantId,
+  });
+  return data;
+}
+
+export async function seatParty(entryId: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/seat`, {
+    restaurantId,
+  });
+  return data;
+}
+
+export async function removeFromQueue(
+  entryId: string,
+  restaurantId: string,
+  reason: 'no-show' | 'left' = 'no-show',
+) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/remove`, {
+    restaurantId,
+    reason,
+  });
+  return data;
+}

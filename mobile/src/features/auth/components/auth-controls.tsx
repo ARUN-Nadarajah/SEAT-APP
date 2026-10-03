@@ -4,8 +4,8 @@ import {
   StyleSheet,
   TextInput,
   View,
-  type ReactNode,
 } from "react-native";
+import type { ReactNode } from "react";
 
 import { ThemedText } from "@/components/themed-text";
 

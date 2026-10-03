@@ -38,6 +38,16 @@ const tableSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    /** When the status last changed — powers the "Last updated" stamp. */
+    statusChangedAt: {
+      type: Date,
+      default: Date.now,
+    },
+    statusChangedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,

@@ -10,7 +10,7 @@ const {
   OTP_SECRET,
 } = require("../config/environment");
 const { AppError } = require("../utils/errors");
-const { generateToken } = require("../utils/generateToken");
+const { generateTokenPair, verifyRefreshToken } = require("../utils/generateToken");
 const { sendMail } = require("./email.service");
 const {
   validateRegisterRequest,
@@ -19,6 +19,8 @@ const {
   validateOtpRequest,
   validateResetPasswordRequest,
   normalizeEmail,
+  assertName,
+  assertPhone,
 } = require("../validations/auth.validation");
 
 const OTP_PURPOSE = {
@@ -144,6 +146,9 @@ async function verifyOtpChallenge({ email, purpose, otp }) {
 }
 
 function buildAuthPayload(user) {
+  // Access + refresh token pair (spec §7: /auth/login, /auth/refresh).
+  const tokens = generateTokenPair(user._id.toString(), user.role);
+
   return {
     user: {
       id: user._id.toString(),
@@ -151,13 +156,17 @@ function buildAuthPayload(user) {
       email: user.email,
       phone: user.phone,
       role: user.role,
+      restaurantId: user.restaurantId || null,
+      notificationPrefs: user.notificationPrefs,
+      pushToken: user.pushToken,
       profileImage: user.profileImage,
     },
-    token: generateToken({
-      sub: user._id.toString(),
-      email: user.email,
-      role: user.role,
-    }),
+    // Legacy single-token key kept so older clients keep working.
+    token: tokens.accessToken,
+    accessToken: tokens.accessToken,
+    refreshToken: tokens.refreshToken,
+    tokenType: tokens.tokenType,
+    expiresIn: tokens.expiresIn,
   };
 }
 
@@ -176,7 +185,7 @@ async function ensureUserExists(email) {
   const user = await User.findOne({
     email: normalizeEmail(email),
     isActive: true,
-  });
+  }).select("+passwordHash");
   if (!user) {
     throw new AppError(
       "No active account found for this email.",
@@ -188,7 +197,8 @@ async function ensureUserExists(email) {
 }
 
 async function requestRegisterOtp(payload) {
-  const { fullName, email, phone, password } = validateRegisterRequest(payload);
+  const { fullName, email, phone, password, role } =
+    validateRegisterRequest(payload);
   await ensureNoExistingUser(email);
   await revokeExistingOtps(email, OTP_PURPOSE.register);
 
@@ -196,7 +206,7 @@ async function requestRegisterOtp(payload) {
   const challenge = await createOtpChallenge({
     email,
     purpose: OTP_PURPOSE.register,
-    payload: { fullName, phone, passwordHash },
+    payload: { fullName, phone, passwordHash, role },
     recipientName: fullName,
   });
 
@@ -226,8 +236,8 @@ async function verifyRegisterOtp(payload) {
     name: otpDocument.payload.fullName,
     email: normalizeEmail(email),
     phone: otpDocument.payload.phone || "",
-    password: otpDocument.payload.passwordHash,
-    role: "customer",
+    passwordHash: otpDocument.payload.passwordHash,
+    role: otpDocument.payload.role || "customer",
     isActive: true,
   });
 
@@ -241,7 +251,7 @@ async function verifyRegisterOtp(payload) {
 async function loginWithPassword(payload) {
   const { email, password } = validateLoginRequest(payload);
   const user = await ensureUserExists(email);
-  const passwordMatches = await bcrypt.compare(password, user.password);
+  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
 
   if (!passwordMatches) {
     throw new AppError(
@@ -288,7 +298,7 @@ async function verifyPasswordResetOtp(payload) {
     throw new AppError("Unable to reset password.", 404, "user_not_found");
   }
 
-  user.password = await bcrypt.hash(newPassword, 12);
+  user.passwordHash = await bcrypt.hash(newPassword, 12);
   await user.save();
 
   return {
@@ -306,24 +316,97 @@ async function getAuthenticatedProfile(userId) {
 
   return {
     message: "Profile loaded successfully.",
-    data: {
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        profileImage: user.profileImage,
-      },
-    },
+    data: { user: user.toPublic() },
   };
+}
+
+/**
+ * POST /api/auth/refresh — exchange a refresh token for a new pair.
+ * Refresh tokens are not tied to a server-side store, so rotation simply
+ * issues a fresh pair; logout is client-side + short access-token TTL.
+ */
+async function refreshSession(refreshToken) {
+  if (!refreshToken) {
+    throw new AppError("A refresh token is required.", 400, "invalid_refresh_token");
+  }
+
+  let payload;
+  try {
+    payload = verifyRefreshToken(refreshToken);
+  } catch (error) {
+    throw new AppError(
+      "Your session has expired. Please sign in again.",
+      401,
+      "invalid_refresh_token",
+    );
+  }
+
+  const user = await User.findById(payload.sub).select("+passwordHash");
+  if (!user || !user.isActive) {
+    throw new AppError(
+      "Your session has expired. Please sign in again.",
+      401,
+      "invalid_refresh_token",
+    );
+  }
+
+  return {
+    message: "Session refreshed.",
+    data: buildAuthPayload(user),
+  };
+}
+
+/**
+ * PATCH /api/auth/me — update profile details or notification preferences
+ * from the Profile screen.
+ */
+async function updateAuthenticatedProfile(userId, updates = {}) {
+  const user = await User.findById(userId);
+  if (!user || !user.isActive) {
+    throw new AppError("Authenticated user not found.", 404, "user_not_found");
+  }
+
+  if (updates.name !== undefined) user.name = assertName(updates.name);
+  if (updates.phone !== undefined) user.phone = assertPhone(updates.phone);
+  if (updates.profileImage !== undefined) {
+    user.profileImage = String(updates.profileImage);
+  }
+
+  if (updates.notificationPrefs && typeof updates.notificationPrefs === "object") {
+    const current = user.notificationPrefs?.toObject?.() || user.notificationPrefs || {};
+    user.notificationPrefs = {
+      ...current,
+      ...pickBooleanFields(updates.notificationPrefs, ["push", "email", "sms", "whatsapp"]),
+    };
+  }
+
+  if (updates.pushToken !== undefined) {
+    user.pushToken = String(updates.pushToken || "");
+  }
+
+  await user.save();
+
+  return {
+    message: "Profile updated successfully.",
+    data: { user: user.toPublic() },
+  };
+}
+
+function pickBooleanFields(source, keys) {
+  const out = {};
+  for (const key of keys) {
+    if (typeof source[key] === "boolean") out[key] = source[key];
+  }
+  return out;
 }
 
 module.exports = {
   requestRegisterOtp,
   verifyRegisterOtp,
   loginWithPassword,
+  refreshSession,
   requestPasswordResetOtp,
   verifyPasswordResetOtp,
   getAuthenticatedProfile,
+  updateAuthenticatedProfile,
 };

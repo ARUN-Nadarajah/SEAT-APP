@@ -1,5 +1,27 @@
 const mongoose = require("mongoose");
 
+/**
+ * Per-channel notification preferences (spec §6 + Profile screen).
+ * The test user in the brief specifically expects an email toggle.
+ */
+const notificationPrefsSchema = new mongoose.Schema(
+  {
+    push: { type: Boolean, default: true },
+    email: { type: Boolean, default: true },
+    /** Mock SMS channel (spec §1: simulated channel option) */
+    sms: { type: Boolean, default: false },
+    /** Mock WhatsApp channel */
+    whatsapp: { type: Boolean, default: false },
+  },
+  { _id: false },
+);
+
+/**
+ * User — customers, restaurant staff and managers.
+ *
+ * Spec §6: name, email, phone, passwordHash, role,
+ * restaurantId for staff/manager, notificationPrefs, pushToken.
+ */
 const userSchema = new mongoose.Schema(
   {
     name: {
@@ -14,9 +36,11 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       trim: true,
     },
-    password: {
+    /** bcrypt hash (spec NFR04 — never store plain passwords). */
+    passwordHash: {
       type: String,
       required: true,
+      select: false,
     },
     phone: {
       type: String,
@@ -25,8 +49,23 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: ["customer", "staff", "admin"],
+      enum: ["customer", "staff", "manager"],
       default: "customer",
+    },
+    /** Required for staff and manager accounts (spec §2 / §6). */
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Restaurant",
+      default: null,
+    },
+    notificationPrefs: {
+      type: notificationPrefsSchema,
+      default: () => ({}),
+    },
+    /** Expo push token, registered from the Profile screen. */
+    pushToken: {
+      type: String,
+      default: "",
     },
     profileImage: {
       type: String,
@@ -42,6 +81,23 @@ const userSchema = new mongoose.Schema(
   },
 );
 
-userSchema.index({ email: 1 }, { unique: true });
+// `email` is already unique via the field definition above.
+userSchema.index({ restaurantId: 1 });
+
+/** Safe projection for API responses — never leaks the hash. */
+userSchema.methods.toPublic = function toPublic() {
+  return {
+    id: this._id,
+    name: this.name,
+    email: this.email,
+    phone: this.phone,
+    role: this.role,
+    restaurantId: this.restaurantId || null,
+    notificationPrefs: this.notificationPrefs,
+    pushToken: this.pushToken,
+    profileImage: this.profileImage,
+    createdAt: this.createdAt,
+  };
+};
 
 module.exports = mongoose.model("User", userSchema);

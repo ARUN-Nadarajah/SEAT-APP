@@ -30,3 +30,4 @@ ios/DerivedData/
 *.sqlite
 *.sqlite3
 *.db
+.freebuff/

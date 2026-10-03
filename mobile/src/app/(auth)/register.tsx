@@ -1,24 +1,39 @@
-import { Link, router } from "expo-router";
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
-
-import { ThemedText } from "@/components/themed-text";
-import { useAuth } from "@/features/auth/auth-context";
-import { authTheme } from "@/features/auth/auth-theme";
-import { AuthBanner, AuthShell } from "@/features/auth/components/auth-shell";
+import { Link, router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import {
-  AuthButton,
-  AuthField,
-} from "@/features/auth/components/auth-controls";
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { AppText, Button, Chip, Field, InfoBox } from '@/components/ui';
+import { useAuth } from '@/features/auth/auth-context';
 import {
   validateAuthEmail,
-  validateAuthOtp,
   validateAuthName,
+  validateAuthOtp,
   validateAuthPassword,
   validateAuthPhone,
   validateConfirmPassword,
-} from "@/features/auth/utils/validation";
+} from '@/features/auth/utils/validation';
+import { colors, spacing } from '@/theme';
 
+type Role = 'customer' | 'staff' | 'manager';
+
+const ROLE_OPTIONS: { value: Role; label: string; blurb: string }[] = [
+  { value: 'customer', label: 'Customer', blurb: 'Book tables & join queues' },
+  { value: 'staff', label: 'Restaurant staff', blurb: 'Run the floor' },
+  { value: 'manager', label: 'Manager', blurb: 'Reports & summaries' },
+];
+
+/**
+ * Register (spec §5: "role selection for demo") + privacy notice (NFR04).
+ * Two steps in one screen: details → email OTP, keeping the flow short.
+ */
 export default function RegisterScreen() {
   const {
     requestRegisterOtp,
@@ -28,244 +43,244 @@ export default function RegisterScreen() {
     feedback,
     clearFeedback,
   } = useAuth();
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [otp, setOtp] = useState("");
+
+  const [role, setRole] = useState<Role>('customer');
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [otpRequested, setOtpRequested] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [fieldErrors, setFieldErrors] = useState<{
-    fullName: string | null;
-    email: string | null;
-    phone: string | null;
-    password: string | null;
-    confirmPassword: string | null;
-    otp: string | null;
-  }>({
-    fullName: null,
-    email: null,
-    phone: null,
-    password: null,
-    confirmPassword: null,
-    otp: null,
-  });
   const [formError, setFormError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string | null>>({});
 
   useEffect(() => {
-    if (isAuthenticated) {
-      router.replace("/home" as never);
-    }
+    if (isAuthenticated) router.replace('/');
   }, [isAuthenticated]);
 
-  async function handleRegister() {
+  // Derived from context rather than copied into state inside an effect.
+  const shownError =
+    feedback?.type === 'warning' ? feedback.message : formError;
+
+  async function requestOtp() {
+    clearFeedback();
     const nextErrors = {
       fullName: validateAuthName(fullName),
       email: validateAuthEmail(email),
       phone: validateAuthPhone(phone),
       password: validateAuthPassword(password),
       confirmPassword: validateConfirmPassword(password, confirmPassword),
-      otp: otpRequested ? validateAuthOtp(otp) : null,
     };
+    setErrors(nextErrors);
+    if (Object.values(nextErrors).some(Boolean)) return;
 
-    setFieldErrors(nextErrors);
     setFormError(null);
-
-    if (Object.values(nextErrors).some(Boolean)) {
-      return;
-    }
-
     try {
-      if (!otpRequested) {
-        await requestRegisterOtp({ fullName, email, phone, password });
-        setOtpRequested(true);
-        return;
-      }
-
-      await verifyRegisterOtp(email, otp);
-      router.replace("/home" as never);
+      await requestRegisterOtp({
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        password,
+        role,
+      });
+      setOtpRequested(true);
     } catch (error) {
       setFormError(
-        error instanceof Error
-          ? error.message
-          : "Unable to create the account.",
+        error instanceof Error ? error.message : 'We couldn’t start your registration.',
+      );
+    }
+  }
+
+  async function verifyOtp() {
+    clearFeedback();
+    const otpError = validateAuthOtp(otp);
+    setErrors({ otp: otpError });
+    if (otpError) return;
+
+    setFormError(null);
+    try {
+      await verifyRegisterOtp(email.trim(), otp.trim());
+    } catch (error) {
+      setFormError(
+        error instanceof Error ? error.message : 'That code didn’t work. Try again.',
       );
     }
   }
 
   return (
-    <AuthShell
-      eyebrow="Create Account"
-      title="Reserve with confidence"
-      description="Create your customer account, receive a verification code by email, and complete sign up in one flow."
-      footer={
-        <Link href="/login" asChild>
-          <ThemedText type="smallBold" style={styles.footerLink}>
-            Already registered? Log in
-          </ThemedText>
-        </Link>
-      }
-    >
-      {feedback ? (
-        <AuthBanner
-          type={feedback.type}
-          title={feedback.type === "success" ? "Account ready" : "Action ready"}
-          message={feedback.message}
-          onDismiss={clearFeedback}
-        />
-      ) : null}
-      {formError ? (
-        <AuthBanner
-          type="error"
-          title="Registration failed"
-          message={formError}
-        />
-      ) : null}
+    <SafeAreaView style={styles.root}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <AppText variant="display">
+              {otpRequested ? 'Check your email' : 'Create your account'}
+            </AppText>
+            <AppText variant="secondary">
+              {otpRequested
+                ? `We sent a 6-digit code to ${email}.`
+                : 'A minute now saves you a queue later.'}
+            </AppText>
+          </View>
 
-      <View style={styles.form}>
-        <AuthField
-          label="Full name"
-          value={fullName}
-          onChangeText={(value) => {
-            setFullName(value);
-            if (fieldErrors.fullName) {
-              setFieldErrors((current) => ({ ...current, fullName: null }));
-            }
-          }}
-          placeholder="Your full name"
-          autoComplete="name"
-          textContentType="name"
-          errorMessage={fieldErrors.fullName}
-        />
+          {!otpRequested ? (
+            <View style={styles.form}>
+              {/* Spec §5 — role selection for demo accounts. */}
+              <View style={styles.block}>
+                <AppText variant="label" style={styles.blockLabel}>
+                  I’m signing in as
+                </AppText>
+                <View style={styles.roleRow}>
+                  {ROLE_OPTIONS.map((option) => (
+                    <Chip
+                      key={option.value}
+                      label={option.label}
+                      selected={role === option.value}
+                      onPress={() => setRole(option.value)}
+                    />
+                  ))}
+                </View>
+                <AppText variant="caption">
+                  {ROLE_OPTIONS.find((option) => option.value === role)?.blurb}
+                </AppText>
+              </View>
 
-        <AuthField
-          label="Email"
-          value={email}
-          onChangeText={(value) => {
-            setEmail(value);
-            if (fieldErrors.email) {
-              setFieldErrors((current) => ({ ...current, email: null }));
-            }
-          }}
-          placeholder="you@example.com"
-          keyboardType="email-address"
-          autoComplete="email"
-          textContentType="emailAddress"
-          errorMessage={fieldErrors.email}
-        />
+              <Field
+                label="Full name"
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Anjali Rasiah"
+                autoCapitalize="words"
+                error={errors.fullName ?? undefined}
+              />
+              <Field
+                label="Email"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                error={errors.email ?? undefined}
+              />
+              <Field
+                label="Phone"
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="+94 77 123 4567"
+                keyboardType="phone-pad"
+                error={errors.phone ?? undefined}
+              />
+              <Field
+                label="Password"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="At least 8 characters"
+                secureTextEntry
+                error={errors.password ?? undefined}
+              />
+              <Field
+                label="Confirm password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                placeholder="Repeat your password"
+                secureTextEntry
+                error={errors.confirmPassword ?? undefined}
+                onSubmitEditing={requestOtp}
+                returnKeyType="done"
+              />
 
-        <AuthField
-          label="Phone"
-          value={phone}
-          onChangeText={(value) => {
-            setPhone(value);
-            if (fieldErrors.phone) {
-              setFieldErrors((current) => ({ ...current, phone: null }));
-            }
-          }}
-          placeholder="+1 555 000 0000"
-          keyboardType="phone-pad"
-          autoComplete="tel"
-          textContentType="telephoneNumber"
-          errorMessage={fieldErrors.phone}
-        />
+              {shownError ? (
+                <InfoBox tone="danger">
+                  <AppText variant="label">{shownError}</AppText>
+                </InfoBox>
+              ) : null}
 
-        <AuthField
-          label="Password"
-          value={password}
-          onChangeText={(value) => {
-            setPassword(value);
-            if (fieldErrors.password || fieldErrors.confirmPassword) {
-              setFieldErrors((current) => ({
-                ...current,
-                password: null,
-                confirmPassword: null,
-              }));
-            }
-          }}
-          placeholder="Create a password"
-          secureTextEntry={!showPassword}
-          autoComplete="new-password"
-          textContentType="newPassword"
-          errorMessage={fieldErrors.password}
-          rightAccessory={
-            <ThemedText
-              type="smallBold"
-              onPress={() => setShowPassword((current) => !current)}
-              style={styles.inlineAction}
-            >
-              {showPassword ? "Hide" : "Show"}
-            </ThemedText>
-          }
-        />
+              <Button
+                label="Send verification code"
+                onPress={requestOtp}
+                loading={isLoading}
+                testID="register-submit"
+              />
+            </View>
+          ) : (
+            <View style={styles.form}>
+              <Field
+                label="Verification code"
+                value={otp}
+                onChangeText={setOtp}
+                placeholder="6-digit code"
+                keyboardType="number-pad"
+                maxLength={6}
+                error={errors.otp ?? undefined}
+                hint="Hint: check the server console — emails are logged when SMTP is not configured."
+              />
 
-        <AuthField
-          label="Confirm password"
-          value={confirmPassword}
-          onChangeText={(value) => {
-            setConfirmPassword(value);
-            if (fieldErrors.confirmPassword) {
-              setFieldErrors((current) => ({
-                ...current,
-                confirmPassword: null,
-              }));
-            }
-          }}
-          placeholder="Confirm your password"
-          secureTextEntry={!showConfirmPassword}
-          autoComplete="new-password"
-          textContentType="newPassword"
-          errorMessage={fieldErrors.confirmPassword}
-          rightAccessory={
-            <ThemedText
-              type="smallBold"
-              onPress={() => setShowConfirmPassword((current) => !current)}
-              style={styles.inlineAction}
-            >
-              {showConfirmPassword ? "Hide" : "Show"}
-            </ThemedText>
-          }
-        />
+              {shownError ? (
+                <InfoBox tone="danger">
+                  <AppText variant="label">{shownError}</AppText>
+                </InfoBox>
+              ) : null}
 
-        {otpRequested ? (
-          <AuthField
-            label="Verification code"
-            value={otp}
-            onChangeText={(value) => {
-              setOtp(value);
-              if (fieldErrors.otp) {
-                setFieldErrors((current) => ({ ...current, otp: null }));
-              }
-            }}
-            placeholder="6-digit code"
-            keyboardType="number-pad"
-            autoComplete="one-time-code"
-            textContentType="oneTimeCode"
-            errorMessage={fieldErrors.otp}
-            helperText="Enter the code sent to your email address to complete registration."
-          />
-        ) : null}
+              <Button label="Verify & create account" onPress={verifyOtp} loading={isLoading} />
+              <Button
+                label="Use a different email"
+                variant="ghost"
+                onPress={() => {
+                  clearFeedback();
+                  setOtpRequested(false);
+                  setFormError(null);
+                }}
+              />
+            </View>
+          )}
 
-        <AuthButton
-          label={otpRequested ? "Create account" : "Send code"}
-          onPress={handleRegister}
-          loading={isLoading}
-        />
-      </View>
-    </AuthShell>
+          {/* NFR04 — privacy notice. */}
+          <InfoBox tone="warning">
+            <AppText variant="label">Privacy notice</AppText>
+            <AppText variant="secondary">
+              We collect only the details needed to hold your table and queue
+              spot. Passwords are hashed, tokens are stored securely, and we
+              never save payment card data.
+            </AppText>
+          </InfoBox>
+
+          <View style={styles.footer}>
+            <AppText variant="secondary">Already have an account?</AppText>
+            <Link href="/(auth)/login" asChild>
+              <Pressable accessibilityRole="button">
+                <AppText variant="label" style={styles.link}>
+                  Sign in
+                </AppText>
+              </Pressable>
+            </Link>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  form: {
-    gap: 14,
-  },
-  footerLink: {
-    color: authTheme.colors.burgundy,
-  },
-  inlineAction: {
-    color: authTheme.colors.burgundy,
+  root: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
+  content: { padding: spacing['2xl'], gap: spacing['2xl'], paddingBottom: spacing['4xl'] },
+  header: { gap: spacing.xs, paddingTop: spacing.md },
+  form: { gap: spacing.lg },
+  block: { gap: spacing.sm },
+  blockLabel: { color: colors.textSecondary },
+  roleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  link: { color: colors.primary, textDecorationLine: 'underline' },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
 });

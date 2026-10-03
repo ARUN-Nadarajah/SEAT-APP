@@ -38,6 +38,7 @@ type AuthContextValue = {
     email: string;
     phone: string;
     password: string;
+    role?: 'customer' | 'staff' | 'manager';
   }) => Promise<void>;
   verifyRegisterOtp: (email: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -79,13 +80,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(hydratedSession);
         setUser(hydratedUser);
       })
+      // Chained rather than called from the effect body: the React compiler
+      // rejects setState calls that run synchronously inside useEffect.
+      .then(() => refreshPendingResetEmail())
+      .catch(() => undefined)
       .finally(() => {
         if (isMounted) {
           setIsHydrating(false);
         }
       });
-
-    refreshPendingResetEmail().catch(() => undefined);
 
     return () => {
       isMounted = false;
