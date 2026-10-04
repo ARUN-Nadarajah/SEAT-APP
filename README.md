@@ -17,6 +17,7 @@ managers get a daily summary.
 - [Prerequisites](#prerequisites)
 - [Setup — backend](#setup--backend)
 - [Setup — mobile app](#setup--mobile-app)
+- [Run both together](#run-both-together)
 - [Demo credentials](#demo-credentials)
 - [Feature checklist](#feature-checklist)
 - [API](#api)
@@ -44,6 +45,8 @@ managers get a daily summary.
 
 ```
 seat-app/
+├── scripts/
+│   └── dev.js               # one-command launcher: backend + Expo together
 ├── backend/                 # Express REST API + Socket.IO
 │   ├── scripts/
 │   │   ├── seed.js          # Jaffna restaurants, tables, demo users, sample data
@@ -134,6 +137,24 @@ EXPO_PUBLIC_SOCKET_URL=http://10.0.2.2:5000
 
 > On a physical phone, use your computer's LAN IP, e.g.
 > `http://192.168.1.10:5000/api`.
+
+## Run both together
+
+From the repository root, one command brings up the whole stack:
+
+```bash
+npm run dev        # backend + Expo dev tools (press a / i / w, or scan with Expo Go)
+npm run dev:web    # backend + Expo web on http://localhost:8081
+```
+
+[`scripts/dev.js`](scripts/dev.js) starts both processes, prefixes their
+output with `[api]` and `[app]`, and stops the pair on Ctrl+C — so one of
+them can never die silently while you wonder why the app is failing. The
+two known startup problems (port 5000 already in use, unreachable
+MongoDB) print their fix inline as a `[hint]` line.
+
+> **First time only:** `cd backend && npm install && npm run seed` and
+> `cd mobile && npm install` before the first `npm run dev`.
 
 ## Demo credentials
 
@@ -272,6 +293,8 @@ WCAG contrast for body text — re-theming accidentally fails CI.
 
 | Symptom | Fix |
 | --- | --- |
+| Create account (or any request) fails with `net::ERR_CONNECTION_REFUSED` | The API is not running — `curl http://localhost:5000/health` returns nothing. Start it: `npm run dev` from the repo root (or `cd backend && npm run dev`), then retry. This is the #1 cause after a reboot or terminal restart. |
+| Every data request returns **500**, log shows `querySrv ECONNREFUSED` or `buffering timed out` | `MONGODB_URI` in `backend/.env` points at a database the network can't reach (e.g. an Atlas SRV host). Set `MONGODB_URI="mongodb://127.0.0.1:27017/seat-app"` for a local MongoDB, restart the API, and confirm the log says `MongoDB connected`. |
 | App can't reach the API on a device/emulator | Use `10.0.2.2` (Android) or your LAN IP (device) in `.env`, not `localhost` |
 | Port 5000 already in use | `PORT=5001 npm run dev` and update `EXPO_PUBLIC_API_URL` |
 | No OTP email arrives | SMTP is unset — the code is printed to the server console |

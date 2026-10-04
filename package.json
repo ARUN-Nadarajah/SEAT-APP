@@ -1,0 +1,12 @@
+{
+  "name": "seat-app",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:web": "node scripts/dev.js --web"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0",
+    "nodemon": "^3.1.14"
+  }
+}
