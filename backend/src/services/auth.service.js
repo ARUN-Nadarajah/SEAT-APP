@@ -185,7 +185,7 @@ async function ensureUserExists(email) {
   const user = await User.findOne({
     email: normalizeEmail(email),
     isActive: true,
-  }).select("+passwordHash");
+  }).select("+passwordHash +password");
   if (!user) {
     throw new AppError(
       "No active account found for this email.",
@@ -251,7 +251,34 @@ async function verifyRegisterOtp(payload) {
 async function loginWithPassword(payload) {
   const { email, password } = validateLoginRequest(payload);
   const user = await ensureUserExists(email);
-  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+
+  const storedHash =
+    (typeof user.getStoredPasswordHash === "function"
+      ? user.getStoredPasswordHash()
+      : null) ||
+    user.passwordHash ||
+    user.password ||
+    user._doc?.passwordHash ||
+    user._doc?.password;
+
+  if (!storedHash || typeof storedHash !== "string") {
+    throw new AppError(
+      "Invalid email or password.",
+      401,
+      "invalid_credentials",
+    );
+  }
+
+  let passwordMatches = false;
+  try {
+    passwordMatches = await bcrypt.compare(password, storedHash);
+  } catch (err) {
+    passwordMatches = password === storedHash;
+  }
+
+  if (!passwordMatches && password === storedHash) {
+    passwordMatches = true;
+  }
 
   if (!passwordMatches) {
     throw new AppError(
@@ -259,6 +286,23 @@ async function loginWithPassword(payload) {
       401,
       "invalid_credentials",
     );
+  }
+
+  // Auto-migrate legacy password to passwordHash
+  if (!user.passwordHash || user.password || !storedHash.startsWith("")) {
+    try {
+      user.passwordHash = storedHash.startsWith("")
+        ? storedHash
+        : await bcrypt.hash(password, 12);
+      user.password = undefined;
+      await user.save();
+    } catch (saveError) {
+      console.warn(
+        "Failed to auto-migrate passwordHash for user:",
+        user.email,
+        saveError.message,
+      );
+    }
   }
 
   return {
@@ -341,7 +385,7 @@ async function refreshSession(refreshToken) {
     );
   }
 
-  const user = await User.findById(payload.sub).select("+passwordHash");
+  const user = await User.findById(payload.sub).select("+passwordHash +password");
   if (!user || !user.isActive) {
     throw new AppError(
       "Your session has expired. Please sign in again.",

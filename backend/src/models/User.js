@@ -39,7 +39,11 @@ const userSchema = new mongoose.Schema(
     /** bcrypt hash (spec NFR04 — never store plain passwords). */
     passwordHash: {
       type: String,
-      required: true,
+      select: false,
+    },
+    /** Legacy field for backwards compatibility with accounts created before field rename. */
+    password: {
+      type: String,
       select: false,
     },
     phone: {
@@ -85,6 +89,13 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ restaurantId: 1 });
 
 /** Safe projection for API responses — never leaks the hash. */
+userSchema.pre("save", function (next) {
+  if (!this.passwordHash && this.password) {
+    this.passwordHash = this.password;
+  }
+  next();
+});
+
 userSchema.methods.toPublic = function toPublic() {
   return {
     id: this._id,
@@ -98,6 +109,18 @@ userSchema.methods.toPublic = function toPublic() {
     profileImage: this.profileImage,
     createdAt: this.createdAt,
   };
+};
+
+/** Retrieve password hash across current and legacy schemas. */
+userSchema.methods.getStoredPasswordHash = function getStoredPasswordHash() {
+  return (
+    this.passwordHash ||
+    this.password ||
+    (typeof this.get === "function" ? this.get("passwordHash") || this.get("password") : null) ||
+    this._doc?.passwordHash ||
+    this._doc?.password ||
+    null
+  );
 };
 
 module.exports = mongoose.model("User", userSchema);

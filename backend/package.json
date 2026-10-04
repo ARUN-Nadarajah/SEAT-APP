@@ -10,6 +10,7 @@
     "seed:keep": "node scripts/seed.js --keep",
     "routes": "node scripts/list-routes.js",
     "smoke": "node scripts/smoke.js",
+    "migrate:passwords": "node scripts/migrate-passwords.js",
     "test": "NODE_ENV=test jest"
   },
   "license": "MIT",

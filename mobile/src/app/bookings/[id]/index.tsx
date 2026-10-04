@@ -18,6 +18,7 @@ import {
   apiErrorMessage,
   cancelBooking,
   fetchBooking,
+  type Booking,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
@@ -46,16 +47,21 @@ export default function ReservationDetailsScreen() {
     );
   }
 
-  if (query.isError || !query.data?.data) {
+  const rawData = query.data?.data as Record<string, any> | undefined;
+  const booking = (rawData?.reservation ?? rawData) as Booking | undefined;
+
+  if (query.isError || !booking || !booking.status) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
         <Header />
-        <ErrorState message={apiErrorMessage(query.error)} onRetry={() => query.refetch()} />
+        <ErrorState
+          message={apiErrorMessage(query.error) || 'Reservation details unavailable.'}
+          onRetry={() => query.refetch()}
+        />
       </SafeAreaView>
     );
   }
 
-  const booking = query.data.data.reservation;
   const closed = ['cancelled', 'completed', 'no-show'].includes(booking.status);
 
   async function onCancel() {
@@ -67,7 +73,7 @@ export default function ReservationDetailsScreen() {
       cancelLabel: 'Keep my booking',
       destructive: true,
     });
-    if (!accepted) return;
+    if (!accepted || !booking) return;
 
     try {
       await cancelBooking(booking.id, 'Cancelled by guest');

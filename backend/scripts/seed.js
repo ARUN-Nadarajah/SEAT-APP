@@ -305,7 +305,7 @@ async function seed() {
   for (const seedUser of USERS) {
     const { restaurantKey, ...fields } = seedUser;
     // eslint-disable-next-line no-await-in-loop
-    let user = await User.findOne({ email: fields.email });
+    let user = await User.findOne({ email: fields.email }).select("+passwordHash +password");
     if (!user) {
       // eslint-disable-next-line no-await-in-loop
       user = await User.create({
@@ -314,6 +314,12 @@ async function seed() {
         restaurantId: restaurantKey ? restaurantsByKey[restaurantKey]._id : null,
       });
       console.log(`  + ${user.role.padEnd(9)} ${user.email}`);
+    } else if (!user.passwordHash || user.password) {
+      user.passwordHash = passwordHash;
+      user.password = undefined;
+      // eslint-disable-next-line no-await-in-loop
+      await user.save();
+      console.log(`  ~ updated passwordHash for ${user.email}`);
     }
     users[fields.email] = user;
   }

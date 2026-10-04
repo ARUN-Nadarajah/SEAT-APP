@@ -278,7 +278,13 @@ async function getReservationById(id, requestingUser) {
     throw new AppError("You do not have permission to view this booking.", 403, "forbidden");
   }
 
-  return { data: shapeForCustomer(reservation) };
+  const shaped = shapeForCustomer(reservation);
+  return {
+    data: {
+      ...shaped,
+      reservation: shaped,
+    },
+  };
 }
 
 /**

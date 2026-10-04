@@ -69,7 +69,7 @@ export default function ResetPasswordScreen() {
 
     try {
       await verifyPasswordResetOtp(email, otp, password);
-      router.replace("/home" as never);
+      router.replace("/" as never);
     } catch (error) {
       setFormError(
         error instanceof Error

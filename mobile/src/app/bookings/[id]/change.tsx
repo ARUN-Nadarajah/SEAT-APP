@@ -20,6 +20,7 @@ import {
   fetchBooking,
   fetchRestaurant,
   updateBooking,
+  type Booking,
 } from '@/services/api';
 import { parseSlotUnavailable } from '@/services/api/reservations.api';
 import { colors, radius, spacing } from '@/theme';
@@ -63,7 +64,8 @@ export default function ChangeReservationScreen() {
     enabled: Boolean(id),
   });
 
-  const booking = bookingQuery.data?.data?.reservation;
+  const rawBookingData = bookingQuery.data?.data as Record<string, any> | undefined;
+  const booking = (rawBookingData?.reservation ?? rawBookingData) as Booking | undefined;
   const effectiveParty = partySize ?? booking?.partySize ?? 2;
   const effectiveDate = date ?? (booking ? booking.date.slice(0, 10) : days[0].value);
 
