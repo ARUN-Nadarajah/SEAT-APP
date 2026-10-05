@@ -35,7 +35,7 @@ function todayString(daysAgo: number): string {
  * wait — plus a date filter and a simple reservations-by-hour chart.
  */
 export default function ManagerDashboardScreen() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [range, setRange] = useState<Range>('today');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -79,6 +79,17 @@ export default function ManagerDashboardScreen() {
             {venueQuery.data?.name ?? 'Loading…'}
           </AppText>
         </View>
+        <Pressable
+          style={styles.iconButton}
+          onPress={async () => {
+            await logout();
+            router.replace('/(auth)/login');
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+        >
+          <Ionicons name="log-out-outline" size={20} color={colors.danger} />
+        </Pressable>
         <Pressable
           style={styles.iconButton}
           onPress={() => router.push('/notifications')}
@@ -232,6 +243,29 @@ export default function ManagerDashboardScreen() {
 
             <Pressable
               style={styles.footerLink}
+              onPress={() =>
+                router.push({
+                  pathname: '/(manager)/restaurant-info',
+                  params: { id: restaurantId },
+                })
+              }
+              accessibilityRole="button"
+              accessibilityLabel="Restaurant management"
+            >
+              <View style={styles.managementIcon}>
+                <Ionicons name="storefront-outline" size={21} color={colors.primary} />
+              </View>
+              <View style={styles.footerLinkBody}>
+                <AppText variant="label">Restaurant Management</AppText>
+                <AppText variant="caption">Manage your restaurant details</AppText>
+              </View>
+              <View style={styles.chevronCircle}>
+                <Ionicons name="chevron-forward" size={17} color={colors.textOnPrimary} />
+              </View>
+            </Pressable>
+
+            <Pressable
+              style={styles.footerLink}
               onPress={() => router.push('/(staff)')}
               accessibilityRole="button"
             >
@@ -368,14 +402,32 @@ const styles = StyleSheet.create({
   footerLink: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    minHeight: 48,
+    gap: spacing.md,
+    minHeight: 68,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
   },
+  managementIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.primarySoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chevronCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLinkBody: { flex: 1, gap: 2 },
   footerLinkText: { color: colors.primary },
   footerLinkDanger: { color: colors.danger },
 });

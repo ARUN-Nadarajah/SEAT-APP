@@ -3,6 +3,7 @@ import type {
   Menu,
   RestaurantCard,
   RestaurantDetail,
+  RestaurantInfo,
   TimeSlot,
 } from './types';
 
@@ -41,6 +42,37 @@ export async function fetchRestaurant(
   const { data } = await apiClient.get<ApiEnvelope<RestaurantDetail>>(
     `/restaurants/${id}`,
     { params: options },
+  );
+  return data;
+}
+
+export async function fetchManagedRestaurant(id: string) {
+  const { data } = await apiClient.get<ApiEnvelope<RestaurantInfo>>(
+    `/restaurants/${id}/management`,
+  );
+  return data;
+}
+
+export type UpdateRestaurantInput = Pick<
+  RestaurantInfo,
+  | 'name'
+  | 'description'
+  | 'phone'
+  | 'address'
+  | 'openingTime'
+  | 'closingTime'
+  | 'cuisine'
+  | 'parkingLabel'
+  | 'images'
+>;
+
+export async function updateManagedRestaurant(
+  id: string,
+  input: UpdateRestaurantInput,
+) {
+  const { data } = await apiClient.put<ApiEnvelope<RestaurantInfo>>(
+    `/restaurants/${id}`,
+    input,
   );
   return data;
 }

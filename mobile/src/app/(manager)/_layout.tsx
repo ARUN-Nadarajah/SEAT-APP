@@ -20,6 +20,8 @@ export default function ManagerLayout() {
       }}
     >
       <Stack.Screen name="index" />
+      <Stack.Screen name="restaurant-info" />
+      <Stack.Screen name="edit-restaurant" />
     </Stack>
   );
 }

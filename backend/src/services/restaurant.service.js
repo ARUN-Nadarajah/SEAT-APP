@@ -236,6 +236,33 @@ async function getRestaurantById(id, options = {}) {
   };
 }
 
+/** Manager view of the shared restaurant record without availability data. */
+async function getRestaurantInfo(id) {
+  const restaurant = await Restaurant.findById(id).lean();
+  if (!restaurant) {
+    throw new AppError("Restaurant not found.", 404, "not_found");
+  }
+  return {
+    data: restaurant,
+    lastUpdated: restaurant.updatedAt || new Date().toISOString(),
+  };
+}
+
+/** Update only manager-editable restaurant information fields. */
+async function updateRestaurantInfo(id, input) {
+  const restaurant = await Restaurant.findByIdAndUpdate(id, input, {
+    new: true,
+    runValidators: true,
+  }).lean();
+  if (!restaurant) {
+    throw new AppError("Restaurant not found.", 404, "not_found");
+  }
+  return {
+    data: restaurant,
+    lastUpdated: restaurant.updatedAt || new Date().toISOString(),
+  };
+}
+
 /**
  * GET /api/restaurants/:id/slots — available time slots (spec §7).
  * Also used to offer alternatives when a requested slot disappears (FR07).
@@ -331,6 +358,8 @@ function slotsForDate(tables, reservations, restaurant, date, partySize) {
 module.exports = {
   listRestaurants,
   getRestaurantById,
+  getRestaurantInfo,
+  updateRestaurantInfo,
   getAvailableSlots,
   getMenu,
   searchRestaurants,

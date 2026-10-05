@@ -4,6 +4,7 @@ const {
   getRestaurants,
   searchRestaurants,
   getRestaurantById,
+  getRestaurantInfo,
   getAvailableSlots,
   getMenu,
   createRestaurant,
@@ -18,6 +19,12 @@ const router = express.Router();
 // Public browsing (FR01) — static paths must precede "/:id".
 router.get("/", getRestaurants);
 router.get("/search", searchRestaurants);
+router.get(
+  "/:id/management",
+  authenticate,
+  requireRole("manager"),
+  getRestaurantInfo,
+);
 
 // FR02/FR07 — available time slots, including alternative suggestions.
 router.get("/:id/slots", getAvailableSlots);

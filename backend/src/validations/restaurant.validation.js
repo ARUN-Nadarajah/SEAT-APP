@@ -1,5 +1,5 @@
 const { AppError } = require("../utils/errors");
-const { toInt, toDate } = require("../middleware/validation.middleware");
+const { toInt, toDate, to24h } = require("../middleware/validation.middleware");
 
 const CUISINE_WHITELIST = [
   "Sri Lankan",
@@ -11,6 +11,86 @@ const CUISINE_WHITELIST = [
   "Bakery",
   "Fast Food",
 ];
+
+const PARKING_LABELS = ["Available", "Unavailable"];
+
+/** Manager restaurant information update payload. */
+function validateRestaurantUpdate(body = {}) {
+  const fields = [
+    ["name", "Restaurant name"],
+    ["description", "Description"],
+    ["phone", "Contact number"],
+    ["address", "Address"],
+    ["openingTime", "Opening time"],
+    ["closingTime", "Closing time"],
+    ["cuisine", "Cuisine type"],
+  ];
+
+  for (const [field, label] of fields) {
+    if (typeof body[field] !== "string" || !body[field].trim()) {
+      throw new AppError(`${label} is required.`, 400, "validation_error");
+    }
+
+    const phoneDigits = body.phone.replace(/\D/g, "");
+    if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+      throw new AppError(
+        "Phone number must contain 10 to 15 digits.",
+        400,
+        "validation_error",
+      );
+    }
+  }
+
+  const openingTime = to24h(body.openingTime);
+  const closingTime = to24h(body.closingTime);
+  if (!openingTime || !closingTime) {
+    throw new AppError(
+      "Opening and closing times must be valid times.",
+      400,
+      "validation_error",
+    );
+  }
+
+  const rawParkingLabel = String(body.parkingLabel || "").trim().toLowerCase();
+  const parkingLabel =
+    rawParkingLabel === "available" || rawParkingLabel === "parking available"
+      ? "Available"
+      : rawParkingLabel === "unavailable" || rawParkingLabel === "no parking"
+        ? "Unavailable"
+        : "";
+  if (!parkingLabel) {
+    throw new AppError(
+      "Parking availability must be Available or Unavailable.",
+      400,
+      "validation_error",
+    );
+  }
+
+  const images = Array.isArray(body.images) ? body.images : [];
+  if (images.length > 0 && (
+    typeof images[0] !== "string" ||
+    !/^https?:\/\/\S+$/i.test(images[0].trim())
+  )) {
+    throw new AppError(
+      "Cover image must be a valid http or https URL.",
+      400,
+      "validation_error",
+    );
+  }
+
+  return {
+    name: body.name.trim(),
+    description: body.description.trim(),
+    phone: body.phone.trim(),
+    address: body.address.trim(),
+    openingTime,
+    closingTime,
+    cuisine: body.cuisine.trim(),
+    parking: parkingLabel === "Available",
+    parkingLabel,
+    images: images.length ? [images[0].trim()] : [],
+  };
+}
 
 /**
  * GET /api/restaurants — search/filter (spec §7).
@@ -54,6 +134,8 @@ function validateSlotQuery(query = {}) {
 
 module.exports = {
   CUISINE_WHITELIST,
+  PARKING_LABELS,
   validateRestaurantQuery,
   validateSlotQuery,
+  validateRestaurantUpdate,
 };
