@@ -86,6 +86,7 @@ export type Menu = {
 export type ReservationStatus =
   | 'confirmed'
   | 'checked-in'
+  | 'cancellation_pending'
   | 'cancelled'
   | 'completed'
   | 'no-show';
@@ -114,6 +115,8 @@ export type Booking = {
   createdAt: string;
   checkedInAt?: string | null;
   cancelledAt?: string | null;
+  cancellationRequestedAt?: string | null;
+  cancellationReason?: string;
   /** Staff list only. */
   guest?: { name: string; phone: string; email: string };
 };

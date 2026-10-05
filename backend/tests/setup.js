@@ -12,9 +12,13 @@ process.env.JWT_SECRET = 'seat-test-access-secret';
 process.env.JWT_REFRESH_SECRET = 'seat-test-refresh-secret';
 process.env.JWT_EXPIRES_IN = '15m';
 
+const net = require('net');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const request = require('supertest');
+const { MongoMemoryServer } = require('mongodb-memory-server');
+
+let memServer = null;
 
 const app = require('../src/app');
 const User = require('../src/models/User');
@@ -79,6 +83,7 @@ async function seedFixture() {
     passwordHash,
     role: 'staff',
     restaurantId: restaurant._id,
+    notificationPrefs: { push: false, email: false, sms: false, whatsapp: false },
   });
 
   const manager = await User.create({
@@ -88,6 +93,7 @@ async function seedFixture() {
     passwordHash,
     role: 'manager',
     restaurantId: restaurant._id,
+    notificationPrefs: { push: false, email: false, sms: false, whatsapp: false },
   });
 
   fixture.restaurantId = String(restaurant._id);
@@ -108,35 +114,64 @@ async function login(email) {
   return response.body.data.accessToken;
 }
 
-beforeAll(async () => {
-  await mongoose.connect(process.env.MONGODB_URI, {
-    serverSelectionTimeoutMS: 8000,
+if (!global.__SETUP_HOOKS_REGISTERED__) {
+  global.__SETUP_HOOKS_REGISTERED__ = true;
+
+  beforeAll(async () => {
+    if (!process.env.TEST_MONGODB_URI) {
+      const isPortOpen = await new Promise((resolve) => {
+        const socket = net.createConnection(27017, '127.0.0.1');
+        socket.setTimeout(300, () => {
+          socket.destroy();
+          resolve(false);
+        });
+        socket.once('connect', () => {
+          socket.end();
+          resolve(true);
+        });
+        socket.once('error', () => resolve(false));
+      });
+      if (!isPortOpen && !memServer) {
+        memServer = await MongoMemoryServer.create({
+          binary: { systemBinary: '/opt/homebrew/bin/mongod' },
+        });
+        process.env.MONGODB_URI = memServer.getUri();
+      }
+    }
+
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 8000,
+    });
+    await clearAll();
+    await seedFixture();
+
+    fixture.tokens.customer = await login('customer@test.local');
+    fixture.tokens.staff = await login('staff@test.local');
+    fixture.tokens.manager = await login('manager@test.local');
   });
-  await clearAll();
-  await seedFixture();
 
-  fixture.tokens.customer = await login('customer@test.local');
-  fixture.tokens.staff = await login('staff@test.local');
-  fixture.tokens.manager = await login('manager@test.local');
-});
+  afterEach(async () => {
+    // Keep the seeded venue/users; clear per-test transactional data.
+    await Promise.all([
+      Reservation.deleteMany({}),
+      QueueEntry.deleteMany({}),
+      Notification.deleteMany({}),
+      AuthOtp.deleteMany({}),
+      Table.updateMany({}, { status: 'available' }),
+      // Extra guests created inside individual tests.
+      User.deleteMany({ email: /^guest\d+@test\.local$/ }),
+    ]);
+  });
 
-afterEach(async () => {
-  // Keep the seeded venue/users; clear per-test transactional data.
-  await Promise.all([
-    Reservation.deleteMany({}),
-    QueueEntry.deleteMany({}),
-    Notification.deleteMany({}),
-    AuthOtp.deleteMany({}),
-    Table.updateMany({}, { status: 'available' }),
-    // Extra guests created inside individual tests.
-    User.deleteMany({ email: /^guest\d+@test\.local$/ }),
-  ]);
-});
-
-afterAll(async () => {
-  await clearAll();
-  await mongoose.disconnect();
-});
+  afterAll(async () => {
+    await clearAll();
+    await mongoose.disconnect();
+    if (memServer) {
+      await memServer.stop();
+      memServer = null;
+    }
+  });
+}
 
 async function clearAll() {
   await Promise.all([

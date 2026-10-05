@@ -32,7 +32,7 @@ async function loadDateContext(restaurantId, date) {
     Reservation.find({
       restaurantId,
       date,
-      status: { $in: ["confirmed", "checked-in"] },
+      status: { $in: ["confirmed", "checked-in", "cancellation_pending"] },
     }).lean(),
     countQueue(restaurantId),
   ]);

@@ -58,6 +58,7 @@ const reservationSchema = new mongoose.Schema(
       enum: [
         "confirmed",
         "checked-in",
+        "cancellation_pending",
         "cancelled",
         "completed",
         "no-show",
@@ -82,6 +83,10 @@ const reservationSchema = new mongoose.Schema(
       default: null,
     },
     cancelledAt: {
+      type: Date,
+      default: null,
+    },
+    cancellationRequestedAt: {
       type: Date,
       default: null,
     },
@@ -120,6 +125,8 @@ reservationSchema.methods.toPublic = function toPublic() {
     specialRequest: this.specialRequest,
     checkedInAt: this.checkedInAt,
     cancelledAt: this.cancelledAt,
+    cancellationRequestedAt: this.cancellationRequestedAt,
+    cancellationReason: this.cancellationReason,
     createdAt: this.createdAt,
   };
 };

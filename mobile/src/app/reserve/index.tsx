@@ -51,7 +51,12 @@ export default function ReserveScreen() {
     tableId?: string;
     tableNumber?: string;
     partySize?: string;
+    tableCapacity?: string;
   }>();
+
+  const maxTableCapacity = params.tableId
+    ? Number(params.tableCapacity || params.partySize) || null
+    : null;
 
   const defaultVenueQuery = useApiQuery(
     ['default-venue-reserve'],
@@ -64,7 +69,10 @@ export default function ReserveScreen() {
 
   const restaurantId = params.restaurantId || defaultVenueQuery.data?.id || '';
 
-  const initialParty = Number(params.partySize) || 2;
+  const initialParty = Math.min(
+    Number(params.partySize) || 2,
+    maxTableCapacity || 20,
+  );
   const [partySize, setPartySize] = useState(initialParty);
   const [date, setDate] = useState(nextDays()[0].value);
   const [time, setTime] = useState<string | null>(null);
@@ -84,6 +92,12 @@ export default function ReserveScreen() {
   const freeSlots = slots.filter((slot) => slot.available);
 
   async function onReview() {
+    if (maxTableCapacity && partySize > maxTableCapacity) {
+      setFormError(
+        `Table ${params.tableNumber || ''} can seat at most ${maxTableCapacity} guests.`,
+      );
+      return;
+    }
     if (!time || !restaurantId) {
       setFormError('Please pick a time that works for you.');
       return;
@@ -145,7 +159,9 @@ export default function ReserveScreen() {
               <InfoBox tone="info">
                 <AppText variant="label">Selected: Table {params.tableNumber}</AppText>
                 <AppText variant="secondary">
-                  You are reserving Table {params.tableNumber} ({partySize} guest{partySize > 1 ? 's' : ''}). Select your date and time below.
+                  {maxTableCapacity
+                    ? `Table ${params.tableNumber} seats up to ${maxTableCapacity} guests. Select guest count, date and time below.`
+                    : `You are reserving Table ${params.tableNumber} (${partySize} guest${partySize > 1 ? 's' : ''}). Select your date and time below.`}
                 </AppText>
               </InfoBox>
             ) : null}
@@ -153,27 +169,56 @@ export default function ReserveScreen() {
             {/* 1 — Party size */}
             <Card>
               <SectionTitle>Who’s coming?</SectionTitle>
+              {maxTableCapacity ? (
+                <AppText variant="caption" style={styles.capacityHint}>
+                  Selected Table {params.tableNumber} capacity: {maxTableCapacity} guest{maxTableCapacity > 1 ? 's' : ''}
+                </AppText>
+              ) : null}
               <View style={styles.partyRow}>
-                {PARTY_SIZES.map((size) => (
-                  <Pressable
-                    key={size}
-                    onPress={() => {
-                      setPartySize(size);
-                      setTime(null);
-                    }}
-                    style={[styles.partyChip, partySize === size && styles.partyChipActive]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: partySize === size }}
-                    accessibilityLabel={`Party of ${size}`}
-                  >
-                    <AppText
-                      variant="label"
-                      style={[styles.partyLabel, partySize === size && styles.partyLabelActive]}
+                {PARTY_SIZES.map((size) => {
+                  const isOverCapacity = Boolean(
+                    maxTableCapacity && size > maxTableCapacity,
+                  );
+                  return (
+                    <Pressable
+                      key={size}
+                      disabled={isOverCapacity}
+                      onPress={() => {
+                        if (isOverCapacity) {
+                          setFormError(
+                            `Table ${params.tableNumber || ''} can seat at most ${maxTableCapacity} guests.`,
+                          );
+                          return;
+                        }
+                        setFormError(null);
+                        setPartySize(size);
+                        setTime(null);
+                      }}
+                      style={[
+                        styles.partyChip,
+                        partySize === size && styles.partyChipActive,
+                        isOverCapacity && styles.partyChipDisabled,
+                      ]}
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        selected: partySize === size,
+                        disabled: isOverCapacity,
+                      }}
+                      accessibilityLabel={`Party of ${size}${isOverCapacity ? ' exceeds table capacity' : ''}`}
                     >
-                      {size}
-                    </AppText>
-                  </Pressable>
-                ))}
+                      <AppText
+                        variant="label"
+                        style={[
+                          styles.partyLabel,
+                          partySize === size && styles.partyLabelActive,
+                          isOverCapacity && styles.partyLabelDisabled,
+                        ]}
+                      >
+                        {size}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
               </View>
             </Card>
 
@@ -332,6 +377,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
   },
+  capacityHint: {
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
   partyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   partyChip: {
     minWidth: 52,
@@ -345,8 +394,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   partyChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  partyChipDisabled: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    opacity: 0.35,
+  },
   partyLabel: { fontSize: 16 },
   partyLabelActive: { color: colors.textOnPrimary },
+  partyLabelDisabled: { color: colors.textMuted },
   days: { gap: spacing.sm, paddingRight: spacing.lg },
   day: {
     width: 72,

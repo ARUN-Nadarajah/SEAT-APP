@@ -78,6 +78,14 @@ export async function updateBooking(id: string, input: UpdateBookingInput) {
   return data;
 }
 
+export async function requestCancellation(id: string, reason: string) {
+  const { data } = await apiClient.post<ApiEnvelope<{ reservation: Booking }>>(
+    `/reservations/${id}/cancel-request`,
+    { reason },
+  );
+  return data;
+}
+
 export async function cancelBooking(id: string, reason = '') {
   const { data } = await apiClient.delete<ApiEnvelope<{ reservation: Booking }>>(
     `/reservations/${id}`,
