@@ -90,6 +90,30 @@ const remove = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+/** POST /api/queue/staff/:id/preparing — mark parcel as preparing (Sobiyan). */
+const markPreparing = asyncHandler(async (req, res) => {
+  const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
+  const entryId = assertObjectId(req.params.id, "entryId");
+  const result = await queueService.markPreparing(restaurantId, entryId);
+  success(res, result);
+});
+
+/** POST /api/queue/staff/:id/ready — mark parcel ready & alert customer (Sobiyan). */
+const markReady = asyncHandler(async (req, res) => {
+  const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
+  const entryId = assertObjectId(req.params.id, "entryId");
+  const result = await queueService.markReady(restaurantId, entryId);
+  success(res, result);
+});
+
+/** POST /api/queue/staff/:id/collect — mark parcel collected (Sobiyan). */
+const markCollected = asyncHandler(async (req, res) => {
+  const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
+  const entryId = assertObjectId(req.params.id, "entryId");
+  const result = await queueService.markCollected(restaurantId, entryId);
+  success(res, result);
+});
+
 module.exports = {
   getPreview,
   addToQueue,
@@ -100,4 +124,7 @@ module.exports = {
   notifyReady,
   seat,
   remove,
+  markPreparing,
+  markReady,
+  markCollected,
 };

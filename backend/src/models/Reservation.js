@@ -94,6 +94,19 @@ const reservationSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    cancellationReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    cancellationReviewedAt: {
+      type: Date,
+      default: null,
+    },
+    cancellationReviewComment: {
+      type: String,
+      default: "",
+    },
     notes: {
       type: String,
       default: "",
@@ -127,6 +140,9 @@ reservationSchema.methods.toPublic = function toPublic() {
     cancelledAt: this.cancelledAt,
     cancellationRequestedAt: this.cancellationRequestedAt,
     cancellationReason: this.cancellationReason,
+    cancellationReviewedBy: this.cancellationReviewedBy,
+    cancellationReviewedAt: this.cancellationReviewedAt,
+    cancellationReviewComment: this.cancellationReviewComment,
     createdAt: this.createdAt,
   };
 };

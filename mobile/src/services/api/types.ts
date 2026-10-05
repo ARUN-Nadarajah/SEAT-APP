@@ -132,6 +132,9 @@ export type Booking = {
   cancelledAt?: string | null;
   cancellationRequestedAt?: string | null;
   cancellationReason?: string;
+  cancellationReviewedBy?: string | null;
+  cancellationReviewedAt?: string | null;
+  cancellationReviewComment?: string;
   /** Staff list only. */
   guest?: { name: string; phone: string; email: string };
 };
@@ -146,9 +149,21 @@ export type SlotAlternative = { time: string; label: string };
 
 export type QueueStage = 'joined' | 'getting-closer' | 'table-ready';
 
+export type QueueStatus =
+  | 'waiting'
+  | 'notified'
+  | 'seated'
+  | 'left'
+  | 'no-show'
+  | 'preparing'
+  | 'ready'
+  | 'collected';
+
 export type QueueEntry = {
   id: string;
   queueCode: string;
+  parcelToken?: string;
+  orderSummary?: string;
   restaurantId: string;
   restaurant: {
     id: string;
@@ -159,7 +174,7 @@ export type QueueEntry = {
   partySize: number;
   position: number;
   partiesAhead: number;
-  status: 'waiting' | 'notified' | 'seated' | 'left' | 'no-show';
+  status: QueueStatus;
   stage: QueueStage;
   estimatedWait: number;
   estimateLabel: string;
@@ -168,6 +183,8 @@ export type QueueEntry = {
   heldTableNumber: string;
   joinedAt: string;
   notifiedAt: string | null;
+  readyAt?: string | null;
+  collectedAt?: string | null;
   seatedAt: string | null;
 } & LastUpdated;
 
@@ -188,9 +205,11 @@ export type QueuePreview = {
 export type StaffQueueRow = {
   id: string;
   queueCode: string;
+  parcelToken?: string;
+  orderSummary?: string;
   partySize: number;
   position: number;
-  status: QueueEntry['status'];
+  status: QueueStatus;
   estimatedWait: number;
   estimateLabel: string;
   guestName: string;
@@ -198,6 +217,8 @@ export type StaffQueueRow = {
   heldTableNumber: string;
   joinedAt: string;
   notifiedAt: string | null;
+  readyAt?: string | null;
+  collectedAt?: string | null;
   seatedAt: string | null;
 };
 
@@ -259,3 +280,70 @@ export type HourlyBucket = {
   seated: number;
   avgWait: number;
 };
+
+export type OrderStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'preparing'
+  | 'ready'
+  | 'served'
+  | 'completed'
+  | 'cancelled';
+
+export type OrderType = 'dine_in' | 'takeaway';
+
+export type OrderItem = {
+  foodId: string;
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  subtotal: number;
+};
+
+export type Order = {
+  id: string;
+  orderNumber?: string;
+  userId?:
+    | string
+    | {
+        id?: string;
+        _id?: string;
+        name: string;
+        phone?: string;
+        email?: string;
+      }
+    | null;
+  restaurantId: string;
+  reservationId?:
+    | string
+    | {
+        id?: string;
+        _id?: string;
+        bookingId?: string;
+        tableNumber?: string;
+      }
+    | null;
+  tableNumber?: string;
+  parcelToken?: string;
+  items: OrderItem[];
+  totalAmount: number;
+  status: OrderStatus;
+  orderType: OrderType;
+  specialInstructions?: string;
+  user?: {
+    id?: string;
+    name: string;
+    phone?: string;
+    email?: string;
+  } | null;
+  reservation?: {
+    id?: string;
+    bookingId?: string;
+    tableNumber?: string;
+    date?: string;
+    time?: string;
+  } | null;
+  createdAt: string;
+  updatedAt?: string;
+};
+

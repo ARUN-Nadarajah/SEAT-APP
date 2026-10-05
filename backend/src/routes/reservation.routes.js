@@ -10,6 +10,8 @@ const {
   getStaffReservations,
   checkIn,
   markNoShow,
+  approveCancellation,
+  rejectCancellation,
 } = require("../controllers/reservation.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
@@ -31,7 +33,9 @@ router.put("/:id", updateReservation);
 router.post("/:id/cancel-request", requestCancellation);
 router.delete("/:id", cancelReservation);
 
-// --- Staff actions ---
+// --- Staff actions (Sobiyan) ---
+router.post("/:id/approve-cancellation", requireRole("staff", "manager"), approveCancellation);
+router.post("/:id/reject-cancellation", requireRole("staff", "manager"), rejectCancellation);
 router.post("/:id/check-in", requireRole("staff", "manager"), checkIn);
 router.post("/:id/no-show", requireRole("staff", "manager"), markNoShow);
 

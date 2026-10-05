@@ -102,6 +102,21 @@ const markNoShow = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+/** POST /api/reservations/:id/approve-cancellation — staff approves cancellation (Sobiyan). */
+const approveCancellation = asyncHandler(async (req, res) => {
+  const id = assertObjectId(req.params.id, "reservationId");
+  const result = await reservationService.approveCancellation(id, req.user);
+  success(res, result);
+});
+
+/** POST /api/reservations/:id/reject-cancellation — staff rejects cancellation (Sobiyan). */
+const rejectCancellation = asyncHandler(async (req, res) => {
+  const id = assertObjectId(req.params.id, "reservationId");
+  const comment = String(req.body?.comment || "");
+  const result = await reservationService.rejectCancellation(id, req.user, comment);
+  success(res, result);
+});
+
 module.exports = {
   getReservations,
   createReservation,
@@ -109,6 +124,8 @@ module.exports = {
   updateReservation,
   requestCancellation,
   cancelReservation,
+  approveCancellation,
+  rejectCancellation,
   getStaffReservations,
   checkIn,
   markNoShow,

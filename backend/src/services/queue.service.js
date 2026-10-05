@@ -12,7 +12,7 @@ const {
 const { seatingDuration, waitEstimate } = require("../utils/availability");
 
 /** Statuses that still hold a place in line. */
-const ACTIVE_STATUSES = ["waiting", "notified"];
+const ACTIVE_STATUSES = ["waiting", "notified", "preparing", "ready"];
 
 /** Human-friendly queue reference, e.g. "Q-0181" (spec §6). */
 async function generateQueueCode() {
@@ -92,6 +92,8 @@ function shapeStaffEntry(entry) {
   return {
     id: entry._id,
     queueCode: entry.queueCode,
+    parcelToken: entry.parcelToken || entry.queueCode,
+    orderSummary: entry.orderSummary || "",
     partySize: entry.partySize,
     position: entry.position,
     status: entry.status,
@@ -102,6 +104,8 @@ function shapeStaffEntry(entry) {
     heldTableNumber: entry.heldTableNumber,
     joinedAt: entry.joinedAt,
     notifiedAt: entry.notifiedAt,
+    readyAt: entry.readyAt,
+    collectedAt: entry.collectedAt,
     seatedAt: entry.seatedAt,
   };
 }
@@ -601,6 +605,90 @@ async function getQueuePreview(restaurantId, partySize = 2) {
   };
 }
 
+/**
+ * Staff parcel / takeaway queue actions (Sobiyan).
+ */
+
+/** POST /api/queue/staff/:id/preparing — mark parcel as preparing. */
+async function markPreparing(restaurantId, entryId) {
+  const entry = await QueueEntry.findOne({ _id: entryId, restaurantId });
+  if (!entry) {
+    throw new AppError("Queue entry not found.", 404, "not_found");
+  }
+
+  entry.status = "preparing";
+  await entry.save();
+
+  emitQueueUpdated(restaurantId, { entryId: entry._id, status: "preparing" });
+
+  return {
+    message: "Order marked as preparing.",
+    data: shapeStaffEntry(entry),
+  };
+}
+
+/** POST /api/queue/staff/:id/ready — mark parcel ready and alert customer. */
+async function markReady(restaurantId, entryId) {
+  const entry = await QueueEntry.findOne({ _id: entryId, restaurantId });
+  if (!entry) {
+    throw new AppError("Queue entry not found.", 404, "not_found");
+  }
+
+  entry.status = "ready";
+  entry.readyAt = new Date();
+  await entry.save();
+
+  const restaurant = await Restaurant.findById(restaurantId).lean();
+
+  await notify({
+    userId: entry.userId,
+    type: "queue-update",
+    title: "Your parcel is ready for pickup!",
+    body: `${restaurant ? restaurant.name : "SEAT"}: Your parcel (${entry.parcelToken || entry.queueCode}) is ready at the collection counter.`,
+    route: "/queue",
+    data: {
+      queueCode: entry.queueCode,
+      parcelToken: entry.parcelToken || entry.queueCode,
+    },
+    channel: "push",
+  });
+
+  emitQueueReady(restaurantId, {
+    entryId: entry._id,
+    userId: String(entry.userId),
+    queueCode: entry.queueCode,
+    parcelToken: entry.parcelToken || entry.queueCode,
+    restaurantName: restaurant?.name || "",
+    type: "parcel",
+  });
+  emitQueueUpdated(restaurantId, { entryId: entry._id, status: "ready" });
+
+  return {
+    message: "Customer notified that parcel is ready.",
+    data: shapeStaffEntry(entry),
+  };
+}
+
+/** POST /api/queue/staff/:id/collect — mark parcel collected and remove from active line. */
+async function markCollected(restaurantId, entryId) {
+  const entry = await QueueEntry.findOne({ _id: entryId, restaurantId });
+  if (!entry) {
+    throw new AppError("Queue entry not found.", 404, "not_found");
+  }
+
+  entry.status = "collected";
+  entry.collectedAt = new Date();
+  await entry.save();
+
+  const snapshot = await recomputePositions(restaurantId);
+  emitQueueUpdated(restaurantId, { queueLength: snapshot.length });
+
+  return {
+    message: "Parcel marked as collected.",
+    data: shapeStaffEntry(entry),
+  };
+}
+
 module.exports = {
   joinQueue,
   getMyActiveEntry,
@@ -610,6 +698,9 @@ module.exports = {
   notifyReady,
   seatParty,
   removeFromQueue,
+  markPreparing,
+  markReady,
+  markCollected,
   getQueuePreview,
   recomputePositions,
   shapeCustomerEntry,

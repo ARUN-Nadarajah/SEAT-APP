@@ -96,3 +96,27 @@ export async function removeFromQueue(
   });
   return data;
 }
+
+/** Staff marks parcel as preparing (Sobiyan). */
+export async function markQueuePreparing(entryId: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/preparing`, {
+    restaurantId,
+  });
+  return data;
+}
+
+/** Staff marks parcel as ready and alerts customer (Sobiyan). */
+export async function markQueueReady(entryId: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/ready`, {
+    restaurantId,
+  });
+  return data;
+}
+
+/** Staff marks parcel as collected (Sobiyan). */
+export async function markQueueCollected(entryId: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/collect`, {
+    restaurantId,
+  });
+  return data;
+}

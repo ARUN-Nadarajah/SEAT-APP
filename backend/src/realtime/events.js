@@ -59,6 +59,24 @@ function emitTableUpdated(restaurantId, payload) {
   });
 }
 
+/** Kitchen order marked ready for customer pickup / service (Sobiyan). */
+function emitOrderReady(restaurantId, payload) {
+  return emitToRestaurant(restaurantId, "order:ready", {
+    restaurantId: String(restaurantId),
+    lastUpdated: new Date().toISOString(),
+    ...payload,
+  });
+}
+
+/** Kitchen order updated (Sobiyan). */
+function emitOrderUpdated(restaurantId, payload) {
+  return emitToRestaurant(restaurantId, "order:updated", {
+    restaurantId: String(restaurantId),
+    lastUpdated: new Date().toISOString(),
+    ...payload,
+  });
+}
+
 module.exports = {
   setIO,
   getIO,
@@ -66,4 +84,6 @@ module.exports = {
   emitQueueUpdated,
   emitQueueReady,
   emitTableUpdated,
+  emitOrderReady,
+  emitOrderUpdated,
 };

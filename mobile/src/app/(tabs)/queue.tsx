@@ -16,6 +16,7 @@ import {
   Skeleton,
   useFeedback,
 } from '@/components/ui';
+import { useAuth } from '@/features/auth/auth-context';
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
@@ -39,6 +40,7 @@ const STAGES: { key: QueueEntry['stage']; label: string }[] = [
  * "Last updated" stamp alongside it (NFR03).
  */
 export default function QueueScreen() {
+  const { user } = useAuth();
   const { confirm, showToast } = useFeedback();
   const [liveAt, setLiveAt] = useState<string | null>(null);
   const [readyEvent, setReadyEvent] = useState<Record<string, unknown> | null>(null);
@@ -58,6 +60,11 @@ export default function QueueScreen() {
 
     const unsubscribeUpdated = onQueueUpdated(restaurantId, refetch);
     const unsubscribeReady = onQueueReady(restaurantId, (payload) => {
+      const p = payload as { userId?: string } | undefined;
+      // Filter out table-ready alerts directed to other users (Sobiyan)
+      if (p?.userId && user?.id && String(p.userId) !== String(user.id)) {
+        return;
+      }
       setReadyEvent(payload as Record<string, unknown>);
       refetch();
     });
@@ -66,7 +73,7 @@ export default function QueueScreen() {
       unsubscribeUpdated();
       unsubscribeReady();
     };
-  }, [restaurantId, refetch]);
+  }, [restaurantId, refetch, user?.id]);
 
   async function onLeave() {
     if (!entry) return;

@@ -207,6 +207,14 @@ async function createReservation(userId, payload) {
     channel: "push",
   });
 
+  await notifyRestaurantStaff(restaurant._id, {
+    type: "reservation",
+    title: "New Reservation",
+    body: `New booking ${bookingId} for ${partySize} guests at ${time}.`,
+    route: `/staff/reservations/${reservation._id}`,
+    data: { reservationId: String(reservation._id), bookingId },
+  });
+
   // Keep the floor plan honest (FR08 staff grid).
   await Table.findByIdAndUpdate(table._id, {
     status: "reserved",
@@ -296,6 +304,9 @@ function shapeForCustomer(entry) {
     cancelledAt: entry.cancelledAt,
     cancellationRequestedAt: entry.cancellationRequestedAt || null,
     cancellationReason: entry.cancellationReason || "",
+    cancellationReviewedBy: entry.cancellationReviewedBy || null,
+    cancellationReviewedAt: entry.cancellationReviewedAt || null,
+    cancellationReviewComment: entry.cancellationReviewComment || "",
   };
 }
 
@@ -589,11 +600,130 @@ async function cancelReservation(id, requestingUser, reason = "") {
 }
 
 /**
+ * POST /api/reservations/:id/approve-cancellation — staff approves cancellation (Sobiyan).
+ * Status transitions: cancellation_pending -> cancelled.
+ * Table slot becomes available via availability logic.
+ */
+async function approveCancellation(id, staffUser) {
+  const reservation = await Reservation.findById(id);
+  if (!reservation) {
+    throw new AppError("Reservation not found.", 404, "not_found");
+  }
+
+  if (!["staff", "manager"].includes(staffUser.role)) {
+    throw new AppError("Only staff or managers can approve cancellations.", 403, "forbidden");
+  }
+
+  if (
+    staffUser.restaurantId &&
+    String(reservation.restaurantId) !== String(staffUser.restaurantId)
+  ) {
+    throw new AppError("Reservation belongs to another restaurant.", 403, "forbidden");
+  }
+
+  if (reservation.status !== "cancellation_pending") {
+    throw new AppError(
+      `Cannot approve cancellation for a reservation with status "${reservation.status}".`,
+      409,
+      "cancellation_not_pending",
+    );
+  }
+
+  reservation.status = "cancelled";
+  reservation.cancelledAt = new Date();
+  reservation.cancellationReviewedBy = staffUser._id;
+  reservation.cancellationReviewedAt = new Date();
+  await reservation.save();
+
+  await notify({
+    userId: reservation.userId,
+    type: "reservation",
+    title: "Cancellation Request Approved",
+    body: `Your cancellation request for booking ${reservation.bookingId} has been approved.`,
+    route: `/bookings/${reservation.bookingId}`,
+    channel: "push",
+  });
+
+  const updated = await Reservation.findById(id)
+    .populate("restaurantId", "name cuisine images address city rating")
+    .populate("tableId", "tableNumber capacity")
+    .lean();
+
+  return {
+    message: "Cancellation request approved.",
+    data: { reservation: shapeForCustomer(updated) },
+  };
+}
+
+/**
+ * POST /api/reservations/:id/reject-cancellation — staff rejects cancellation (Sobiyan).
+ * Status transitions: cancellation_pending -> confirmed.
+ * Reservation remains active.
+ */
+async function rejectCancellation(id, staffUser, rawComment = "") {
+  const reservation = await Reservation.findById(id);
+  if (!reservation) {
+    throw new AppError("Reservation not found.", 404, "not_found");
+  }
+
+  if (!["staff", "manager"].includes(staffUser.role)) {
+    throw new AppError("Only staff or managers can reject cancellations.", 403, "forbidden");
+  }
+
+  if (
+    staffUser.restaurantId &&
+    String(reservation.restaurantId) !== String(staffUser.restaurantId)
+  ) {
+    throw new AppError("Reservation belongs to another restaurant.", 403, "forbidden");
+  }
+
+  if (reservation.status !== "cancellation_pending") {
+    throw new AppError(
+      `Cannot reject cancellation for a reservation with status "${reservation.status}".`,
+      409,
+      "cancellation_not_pending",
+    );
+  }
+
+  const comment = String(rawComment || "").trim();
+  reservation.status = "confirmed";
+  reservation.cancellationReviewedBy = staffUser._id;
+  reservation.cancellationReviewedAt = new Date();
+  reservation.cancellationReviewComment = comment;
+  await reservation.save();
+
+  await notify({
+    userId: reservation.userId,
+    type: "reservation",
+    title: "Cancellation Request Rejected",
+    body: `Your cancellation request for booking ${reservation.bookingId} was not approved.${
+      comment ? ` Note: ${comment}` : ""
+    }`,
+    route: `/bookings/${reservation.bookingId}`,
+    channel: "push",
+  });
+
+  const updated = await Reservation.findById(id)
+    .populate("restaurantId", "name cuisine images address city rating")
+    .populate("tableId", "tableNumber capacity")
+    .lean();
+
+  return {
+    message: "Cancellation request rejected.",
+    data: { reservation: shapeForCustomer(updated) },
+  };
+}
+
+/**
  * Staff view: today's reservations with search + check-in (FR09).
  */
 async function listForStaff({ restaurantId, date, q = "", status = "" }) {
-  const bookingDate = normalizeDate(date) || today();
-  const filter = { restaurantId, date: bookingDate };
+  const filter = { restaurantId };
+  if (date) {
+    filter.date = normalizeDate(date) || today();
+  } else if (status !== "cancellation_pending") {
+    filter.date = today();
+  }
 
   if (status) filter.status = status;
 
@@ -627,7 +757,7 @@ async function listForStaff({ restaurantId, date, q = "", status = "" }) {
         ? { name: entry.userId.name, phone: entry.userId.phone, email: entry.userId.email }
         : { name: entry.guestName, phone: entry.guestPhone, email: "" },
     })),
-    date: bookingDate,
+    date: filter.date || null,
     total: reservations.length,
     lastUpdated: new Date().toISOString(),
   };
@@ -692,6 +822,8 @@ module.exports = {
   updateReservation,
   requestCancellation,
   cancelReservation,
+  approveCancellation,
+  rejectCancellation,
   listForStaff,
   checkIn,
   markNoShow,

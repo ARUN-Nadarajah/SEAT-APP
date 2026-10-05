@@ -33,6 +33,10 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
+    orderNumber: {
+      type: String,
+      trim: true,
+    },
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -47,6 +51,14 @@ const orderSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Reservation",
       default: null,
+    },
+    tableNumber: {
+      type: String,
+      default: "",
+    },
+    parcelToken: {
+      type: String,
+      default: "",
     },
     items: {
       type: [orderItemSchema],
@@ -95,5 +107,24 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ userId: 1 });
 orderSchema.index({ restaurantId: 1 });
 orderSchema.index({ reservationId: 1 });
+
+orderSchema.methods.toPublic = function toPublic() {
+  return {
+    id: this._id,
+    orderNumber: this.orderNumber || `ORD-${String(this._id).slice(-4).toUpperCase()}`,
+    userId: this.userId,
+    restaurantId: this.restaurantId,
+    reservationId: this.reservationId,
+    tableNumber: this.tableNumber || "",
+    parcelToken: this.parcelToken || "",
+    items: this.items,
+    totalAmount: this.totalAmount,
+    status: this.status,
+    orderType: this.orderType,
+    specialInstructions: this.specialInstructions,
+    createdAt: this.createdAt,
+    updatedAt: this.updatedAt,
+  };
+};
 
 module.exports = mongoose.model("Order", orderSchema);

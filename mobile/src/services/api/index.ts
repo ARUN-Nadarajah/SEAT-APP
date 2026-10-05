@@ -12,3 +12,4 @@ export * from './restaurants.api';
 export * from './reservations.api';
 export * from './queue.api';
 export * from './staff.api';
+export * from './orders.api';

@@ -43,8 +43,25 @@ const queueEntrySchema = new mongoose.Schema(
     status: {
       type: String,
       required: true,
-      enum: ["waiting", "notified", "seated", "left", "no-show"],
+      enum: [
+        "waiting",
+        "notified",
+        "seated",
+        "left",
+        "no-show",
+        "preparing",
+        "ready",
+        "collected",
+      ],
       default: "waiting",
+    },
+    parcelToken: {
+      type: String,
+      default: "",
+    },
+    orderSummary: {
+      type: String,
+      default: "",
     },
     /** Minutes the customer is currently expected to wait (FR04). */
     estimatedWait: {
@@ -74,6 +91,14 @@ const queueEntrySchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    readyAt: {
+      type: Date,
+      default: null,
+    },
+    collectedAt: {
+      type: Date,
+      default: null,
+    },
     seatedAt: {
       type: Date,
       default: null,
@@ -96,6 +121,8 @@ queueEntrySchema.methods.toPublic = function toPublic() {
   return {
     id: this._id,
     queueCode: this.queueCode,
+    parcelToken: this.parcelToken || this.queueCode,
+    orderSummary: this.orderSummary,
     userId: this.userId,
     restaurantId: this.restaurantId,
     partySize: this.partySize,
@@ -106,6 +133,8 @@ queueEntrySchema.methods.toPublic = function toPublic() {
     heldTableNumber: this.heldTableNumber,
     joinedAt: this.joinedAt,
     notifiedAt: this.notifiedAt,
+    readyAt: this.readyAt,
+    collectedAt: this.collectedAt,
     seatedAt: this.seatedAt,
   };
 };

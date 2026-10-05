@@ -29,29 +29,44 @@ import { useApiQuery } from '@/hooks/useApi';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
+  approveCancellation,
   callNextParty,
   checkInBooking,
   createTable,
+  fetchKitchenOrders,
   fetchRestaurants,
   fetchStaffQueue,
   fetchStaffReservations,
   fetchTables,
+  markQueueCollected,
+  markQueuePreparing,
+  markQueueReady,
+  rejectCancellation,
   removeFromQueue,
   seatParty,
+  updateOrderStatus,
   updateTable,
   updateTableStatus,
+  type Order,
+  type OrderStatus,
   type Table,
   type TableStatus,
 } from '@/services/api';
-import { onTableUpdated, onQueueUpdated } from '@/services/realtime/socket';
+import {
+  onTableUpdated,
+  onQueueUpdated,
+  onOrderUpdated,
+  onOrderReady,
+} from '@/services/realtime/socket';
 import { colors, radius, spacing } from '@/theme';
 
-type Panel = 'tables' | 'reservations' | 'queue';
+type Panel = 'tables' | 'reservations' | 'queue' | 'kitchen';
 
 const PANELS: { key: Panel; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'tables', label: 'Tables', icon: 'grid-outline' },
   { key: 'reservations', label: 'Bookings', icon: 'calendar-outline' },
   { key: 'queue', label: 'Queue', icon: 'people-outline' },
+  { key: 'kitchen', label: 'Kitchen', icon: 'restaurant-outline' },
 ];
 
 const TABLE_CYCLE: TableStatus[] = ['available', 'occupied', 'reserved'];
@@ -86,6 +101,13 @@ export default function StaffDashboardScreen() {
   const [isSubmittingTable, setIsSubmittingTable] = useState(false);
   const [fieldPicker, setFieldPicker] = useState<'capacity' | 'type' | 'status' | null>(null);
 
+  const [bookingSubFilter, setBookingSubFilter] = useState<'all' | 'cancellation_pending'>('all');
+  const [kitchenFilter, setKitchenFilter] = useState<'all' | 'pending' | 'preparing' | 'ready'>('all');
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectBookingId, setRejectBookingId] = useState<string | null>(null);
+  const [rejectComment, setRejectComment] = useState('');
+  const [isSubmittingReject, setIsSubmittingReject] = useState(false);
+
   // Resolve the venue this staff member works at (spec §2).
   const venueQuery = useApiQuery(['staff-venue', user?.restaurantId], async () => {
     if (user?.restaurantId) {
@@ -119,9 +141,15 @@ export default function StaffDashboardScreen() {
     fetchStaffQueue(restaurantId),
   );
 
+  const kitchen = useApiQuery(
+    ['staff-kitchen', restaurantId],
+    () => fetchKitchenOrders(restaurantId),
+    { enabled: Boolean(restaurantId) },
+  );
+
   const markLive = useCallback(() => setLiveAt(new Date().toISOString()), []);
 
-  // FR05/FR08 — live floor updates while the dashboard is open.
+  // FR05/FR08/FR09 — live floor and order updates while the dashboard is open.
   useEffect(() => {
     if (!restaurantId) return;
     const offTables = onTableUpdated(restaurantId, () => {
@@ -132,15 +160,25 @@ export default function StaffDashboardScreen() {
       queue.refetch();
       markLive();
     });
+    const offOrders = onOrderUpdated(restaurantId, () => {
+      kitchen.refetch();
+      markLive();
+    });
+    const offOrderReady = onOrderReady(restaurantId, () => {
+      kitchen.refetch();
+      markLive();
+    });
     return () => {
       offTables();
       offQueue();
+      offOrders();
+      offOrderReady();
     };
-  }, [restaurantId, tables.refetch, queue.refetch, markLive]);
+  }, [restaurantId, tables.refetch, queue.refetch, kitchen.refetch, markLive]);
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([tables.refetch(), reservations.refetch(), queue.refetch()]);
+    await Promise.all([tables.refetch(), reservations.refetch(), queue.refetch(), kitchen.refetch()]);
     setRefreshing(false);
   }
 
@@ -350,8 +388,105 @@ export default function StaffDashboardScreen() {
     }
   }
 
+  async function onApproveCancel(bookingId: string) {
+    try {
+      await approveCancellation(bookingId);
+      reservations.refetch();
+      tables.refetch();
+      markLive();
+      showToast('Cancellation request approved. Table released.', 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
+  function openRejectModal(bookingId: string) {
+    setRejectBookingId(bookingId);
+    setRejectComment('');
+    setRejectModalOpen(true);
+  }
+
+  async function submitRejectCancel() {
+    if (!rejectBookingId) return;
+    setIsSubmittingReject(true);
+    try {
+      await rejectCancellation(rejectBookingId, rejectComment.trim());
+      reservations.refetch();
+      markLive();
+      setRejectModalOpen(false);
+      setRejectBookingId(null);
+      showToast('Cancellation request rejected.', 'info');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    } finally {
+      setIsSubmittingReject(false);
+    }
+  }
+
+  async function onMarkPreparing(entryId: string) {
+    try {
+      await markQueuePreparing(entryId, restaurantId);
+      queue.refetch();
+      markLive();
+      showToast('Parcel marked as preparing.', 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
+  async function onMarkReady(entryId: string) {
+    try {
+      await markQueueReady(entryId, restaurantId);
+      queue.refetch();
+      markLive();
+      showToast('Customer notified that parcel is ready.', 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
+  async function onMarkCollected(entryId: string) {
+    try {
+      await markQueueCollected(entryId, restaurantId);
+      queue.refetch();
+      markLive();
+      showToast('Parcel marked as collected.', 'info');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
+  async function onUpdateOrderStatus(orderId: string, status: OrderStatus) {
+    try {
+      await updateOrderStatus(orderId, status);
+      kitchen.refetch();
+      markLive();
+      const msg =
+        status === 'ready'
+          ? 'Order ready! Customer notified.'
+          : `Order status updated to ${status}.`;
+      showToast(msg, 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
   const summary = tables.data?.summary;
   const waitingCount = queue.data?.data?.filter((row) => row.status === 'waiting').length ?? 0;
+  const pendingCancelCount =
+    (reservations.data?.data ?? []).filter((b) => b.status === 'cancellation_pending').length ?? 0;
+
+  const displayedBookings = (reservations.data?.data ?? []).filter((b) => {
+    if (bookingSubFilter === 'cancellation_pending') {
+      return b.status === 'cancellation_pending';
+    }
+    return true;
+  });
+
+  const displayedKitchenOrders = (kitchen.data?.data ?? []).filter((order) => {
+    if (kitchenFilter === 'all') return true;
+    return order.status === kitchenFilter;
+  });
   const filteredTables = (tables.data?.data ?? []).filter((table) => {
     const matchesFilter = tableFilter === 'all' || table.status === tableFilter;
     const query = search.trim().toLowerCase();
@@ -596,7 +731,7 @@ export default function StaffDashboardScreen() {
           )
         ) : null}
 
-        {/* --- FR09: today's reservations with search + check-in --- */}
+        {/* --- FR09: today's reservations with search + check-in + cancellation review --- */}
         {panel === 'reservations' ? (
           <>
             <View style={styles.searchShell}>
@@ -611,6 +746,47 @@ export default function StaffDashboardScreen() {
               />
             </View>
 
+            <View style={styles.filterRow}>
+              <Pressable
+                onPress={() => setBookingSubFilter('all')}
+                style={[
+                  styles.filterChip,
+                  bookingSubFilter === 'all' && styles.filterChipActive,
+                ]}
+                accessibilityRole="button"
+              >
+                <AppText
+                  variant="label"
+                  style={[
+                    styles.filterChipText,
+                    bookingSubFilter === 'all' && styles.filterChipTextActive,
+                  ]}
+                >
+                  All Bookings ({reservations.data?.data?.length ?? 0})
+                </AppText>
+              </Pressable>
+              <Pressable
+                onPress={() => setBookingSubFilter('cancellation_pending')}
+                style={[
+                  styles.filterChip,
+                  pendingCancelCount > 0 && styles.filterChipReserved,
+                  bookingSubFilter === 'cancellation_pending' && styles.filterChipActive,
+                ]}
+                accessibilityRole="button"
+              >
+                <AppText
+                  variant="label"
+                  style={[
+                    styles.filterChipText,
+                    pendingCancelCount > 0 && styles.filterChipTextReserved,
+                    bookingSubFilter === 'cancellation_pending' && styles.filterChipTextActive,
+                  ]}
+                >
+                  Cancellation Requests ({pendingCancelCount})
+                </AppText>
+              </Pressable>
+            </View>
+
             {reservations.isLoading ? (
               <RowSkeleton count={3} />
             ) : reservations.isError ? (
@@ -618,15 +794,21 @@ export default function StaffDashboardScreen() {
                 message={apiErrorMessage(reservations.error)}
                 onRetry={() => reservations.refetch()}
               />
-            ) : (reservations.data?.data?.length ?? 0) === 0 ? (
+            ) : displayedBookings.length === 0 ? (
               <EmptyState
-                title="No bookings today"
-                message={search ? 'Nothing matches that search.' : 'A quiet day — enjoy it.'}
-                glyph="🗓"
+                title={bookingSubFilter === 'cancellation_pending' ? 'No cancellation requests' : 'No bookings today'}
+                message={
+                  bookingSubFilter === 'cancellation_pending'
+                    ? 'No reservations are currently pending cancellation review.'
+                    : search
+                      ? 'Nothing matches that search.'
+                      : 'A quiet day — enjoy it.'
+                }
+                glyph={bookingSubFilter === 'cancellation_pending' ? '✅' : '🗓'}
               />
             ) : (
               <View style={styles.list}>
-                {(reservations.data?.data ?? []).map((booking) => (
+                {displayedBookings.map((booking) => (
                   <Card key={booking.id} style={styles.bookingCard}>
                     <View style={styles.bookingTop}>
                       <View style={styles.bookingTitleBlock}>
@@ -640,10 +822,52 @@ export default function StaffDashboardScreen() {
                         </AppText>
                       </View>
                       <Badge
-                        label={booking.status}
-                        tone={booking.status === 'checked-in' ? 'success' : 'neutral'}
+                        label={
+                          booking.status === 'cancellation_pending'
+                            ? 'Cancellation Pending'
+                            : booking.status
+                        }
+                        tone={
+                          booking.status === 'checked-in'
+                            ? 'success'
+                            : booking.status === 'cancellation_pending'
+                              ? 'warning'
+                              : 'neutral'
+                        }
                       />
                     </View>
+
+                    {booking.status === 'cancellation_pending' ? (
+                      <View style={styles.cancellationBox}>
+                        <AppText variant="caption" style={styles.cancellationLabel}>
+                          Cancellation Request Reason:
+                        </AppText>
+                        <AppText variant="bodyMedium">"{booking.cancellationReason}"</AppText>
+                        {booking.cancellationRequestedAt ? (
+                          <AppText variant="caption" style={styles.cancellationTime}>
+                            Requested at{' '}
+                            {new Date(booking.cancellationRequestedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </AppText>
+                        ) : null}
+                        <View style={styles.cancellationActions}>
+                          <Button
+                            label="Approve Cancel"
+                            variant="danger"
+                            style={styles.cancellationActionBtn}
+                            onPress={() => onApproveCancel(booking.id)}
+                          />
+                          <Button
+                            label="Reject"
+                            variant="secondary"
+                            style={styles.cancellationActionBtn}
+                            onPress={() => openRejectModal(booking.id)}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
 
                     {booking.status === 'confirmed' ? (
                       <Button
@@ -659,7 +883,7 @@ export default function StaffDashboardScreen() {
           </>
         ) : null}
 
-        {/* --- FR09/Fr06: queue management --- */}
+        {/* --- FR09/Fr06: queue management + parcel actions --- */}
         {panel === 'queue' ? (
           queue.isLoading ? (
             <RowSkeleton count={3} />
@@ -685,19 +909,29 @@ export default function StaffDashboardScreen() {
                   <Card key={row.id} style={styles.queueCard}>
                     <View style={styles.bookingTop}>
                       <View style={styles.bookingTitleBlock}>
-                        <AppText variant="bodyMedium">
-                          {row.position}. {row.guestName}
-                        </AppText>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <AppText variant="bodyMedium">
+                            {row.position}. {row.guestName}
+                          </AppText>
+                          {row.parcelToken ? (
+                            <Badge label={`Parcel ${row.parcelToken}`} tone="accent" />
+                          ) : null}
+                        </View>
                         <AppText variant="caption">
                           {row.queueCode} · party of {row.partySize} · {row.estimateLabel}
                         </AppText>
+                        {row.orderSummary ? (
+                          <AppText variant="caption" style={{ color: colors.primary, marginTop: 2 }}>
+                            Items: {row.orderSummary}
+                          </AppText>
+                        ) : null}
                       </View>
                       <Badge
                         label={row.status}
                         tone={
-                          row.status === 'notified'
+                          row.status === 'ready' || row.status === 'notified'
                             ? 'success'
-                            : row.status === 'seated'
+                            : row.status === 'preparing' || row.status === 'seated'
                               ? 'accent'
                               : 'neutral'
                         }
@@ -705,26 +939,189 @@ export default function StaffDashboardScreen() {
                     </View>
 
                     <View style={styles.queueActions}>
-                      {row.status === 'waiting' || row.status === 'notified' ? (
+                      {row.status === 'waiting' ? (
+                        <>
+                          <Button
+                            label="Preparing"
+                            variant="secondary"
+                            onPress={() => onMarkPreparing(row.id)}
+                            style={styles.queueAction}
+                          />
+                          <Button
+                            label="Seat"
+                            variant="secondary"
+                            onPress={() => onSeat(row.id)}
+                            style={styles.queueAction}
+                          />
+                          <Button
+                            label="Remove"
+                            variant="danger"
+                            onPress={() => onRemove(row.id)}
+                            style={styles.queueAction}
+                          />
+                        </>
+                      ) : null}
+                      {row.status === 'preparing' ? (
                         <Button
-                          label="Seat"
-                          variant="secondary"
-                          onPress={() => onSeat(row.id)}
+                          label="Ready for Pickup"
+                          onPress={() => onMarkReady(row.id)}
                           style={styles.queueAction}
                         />
                       ) : null}
-                      {row.status !== 'seated' ? (
+                      {row.status === 'ready' ? (
                         <Button
-                          label="Remove"
-                          variant="danger"
-                          onPress={() => onRemove(row.id)}
+                          label="Mark Collected"
+                          variant="secondary"
+                          onPress={() => onMarkCollected(row.id)}
                           style={styles.queueAction}
                         />
+                      ) : null}
+                      {row.status === 'notified' ? (
+                        <>
+                          <Button
+                            label="Seat"
+                            variant="secondary"
+                            onPress={() => onSeat(row.id)}
+                            style={styles.queueAction}
+                          />
+                          <Button
+                            label="Remove"
+                            variant="danger"
+                            onPress={() => onRemove(row.id)}
+                            style={styles.queueAction}
+                          />
+                        </>
                       ) : null}
                     </View>
                   </Card>
                 ))}
               </View>
+            </>
+          )
+        ) : null}
+
+        {/* --- Kitchen Order View (Sobiyan) --- */}
+        {panel === 'kitchen' ? (
+          kitchen.isLoading ? (
+            <RowSkeleton count={3} />
+          ) : kitchen.isError ? (
+            <ErrorState
+              message={apiErrorMessage(kitchen.error)}
+              onRetry={() => kitchen.refetch()}
+            />
+          ) : (
+            <>
+              <View style={styles.filterRow}>
+                {(['all', 'pending', 'preparing', 'ready'] as const).map((filter) => (
+                  <Pressable
+                    key={filter}
+                    onPress={() => setKitchenFilter(filter)}
+                    style={[
+                      styles.filterChip,
+                      kitchenFilter === filter && styles.filterChipActive,
+                    ]}
+                    accessibilityRole="button"
+                  >
+                    <AppText
+                      variant="label"
+                      style={[
+                        styles.filterChipText,
+                        kitchenFilter === filter && styles.filterChipTextActive,
+                      ]}
+                    >
+                      {filter === 'all'
+                        ? `All (${kitchen.data?.data?.length ?? 0})`
+                        : `${filter.charAt(0).toUpperCase() + filter.slice(1)} (${
+                            kitchen.data?.data?.filter((o) => o.status === filter).length ?? 0
+                          })`}
+                    </AppText>
+                  </Pressable>
+                ))}
+              </View>
+
+              {displayedKitchenOrders.length === 0 ? (
+                <EmptyState
+                  title="Kitchen is clear"
+                  message="No orders matching this filter right now."
+                  glyph="👨‍🍳"
+                />
+              ) : (
+                <View style={styles.list}>
+                  {displayedKitchenOrders.map((order) => (
+                    <Card key={order.id} style={styles.kitchenCard}>
+                      <View style={styles.bookingTop}>
+                        <View style={styles.bookingTitleBlock}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <AppText variant="heading">{order.orderNumber || 'ORD-0000'}</AppText>
+                            <Badge
+                              label={order.orderType === 'takeaway' ? 'Takeaway' : (order.tableNumber ? `Table ${order.tableNumber}` : 'Dine-In')}
+                              tone={order.orderType === 'takeaway' ? 'warning' : 'neutral'}
+                            />
+                          </View>
+                          <AppText variant="caption">
+                            Placed at {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {order.user?.name || 'Customer'}
+                          </AppText>
+                        </View>
+                        <Badge
+                          label={order.status}
+                          tone={order.status === 'ready' ? 'success' : order.status === 'preparing' ? 'accent' : 'neutral'}
+                        />
+                      </View>
+
+                      <View style={styles.kitchenItemsList}>
+                        {(order.items || []).map((item, idx) => (
+                          <View key={idx} style={styles.kitchenItemRow}>
+                            <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                              {item.quantity}x {item.name}
+                            </AppText>
+                            <AppText variant="secondary">
+                              Rs. {item.subtotal || item.unitPrice * item.quantity}
+                            </AppText>
+                          </View>
+                        ))}
+                      </View>
+
+                      {order.specialInstructions ? (
+                        <View style={styles.notesBox}>
+                          <AppText variant="caption" style={{ color: colors.warning, fontWeight: '600' }}>
+                            Note: {order.specialInstructions}
+                          </AppText>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.kitchenActions}>
+                        {order.status === 'pending' || order.status === 'confirmed' ? (
+                          <Button
+                            label="Start Preparing"
+                            onPress={() => onUpdateOrderStatus(order.id, 'preparing')}
+                            style={{ flex: 1 }}
+                          />
+                        ) : null}
+                        {order.status === 'preparing' ? (
+                          <Button
+                            label="Order Ready"
+                            onPress={() => onUpdateOrderStatus(order.id, 'ready')}
+                            style={{ flex: 1 }}
+                          />
+                        ) : null}
+                        {order.status === 'ready' ? (
+                          <Button
+                            label={order.orderType === 'takeaway' ? 'Mark Collected' : 'Mark Served'}
+                            variant="secondary"
+                            onPress={() =>
+                              onUpdateOrderStatus(
+                                order.id,
+                                order.orderType === 'takeaway' ? 'completed' : 'served',
+                              )
+                            }
+                            style={{ flex: 1 }}
+                          />
+                        ) : null}
+                      </View>
+                    </Card>
+                  ))}
+                </View>
+              )}
             </>
           )
         ) : null}
@@ -845,6 +1242,58 @@ export default function StaffDashboardScreen() {
               style={styles.submitButton}
             />
 
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={rejectModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setRejectModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <AppText variant="title">Reject Cancellation</AppText>
+              <Pressable
+                onPress={() => setRejectModalOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close reject modal"
+              >
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            <View style={{ gap: spacing.md, marginTop: spacing.md }}>
+              <AppText variant="secondary">
+                Explain to the customer why their cancellation request was rejected (optional):
+              </AppText>
+              <TextInput
+                style={[styles.input, { minHeight: 80, textAlignVertical: 'top' }]}
+                value={rejectComment}
+                onChangeText={setRejectComment}
+                placeholder="e.g. Cancellation policy requires 24h advance notice"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                numberOfLines={3}
+              />
+              <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+                <Button
+                  label="Cancel"
+                  variant="ghost"
+                  style={{ flex: 1 }}
+                  onPress={() => setRejectModalOpen(false)}
+                />
+                <Button
+                  label="Confirm Reject"
+                  variant="danger"
+                  style={{ flex: 1 }}
+                  loading={isSubmittingReject}
+                  onPress={submitRejectCancel}
+                />
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -1159,6 +1608,54 @@ const styles = StyleSheet.create({
   queueCard: { gap: spacing.sm },
   queueActions: { flexDirection: 'row', gap: spacing.sm },
   queueAction: { flex: 1 },
+  cancellationBox: {
+    backgroundColor: '#FFF8EC',
+    borderWidth: 1,
+    borderColor: colors.warning,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    gap: 4,
+    marginTop: 4,
+  },
+  cancellationLabel: {
+    color: colors.warning,
+    fontWeight: '600',
+  },
+  cancellationTime: {
+    color: colors.textMuted,
+  },
+  cancellationActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  cancellationActionBtn: {
+    flex: 1,
+  },
+  kitchenCard: {
+    gap: spacing.sm,
+  },
+  kitchenItemsList: {
+    backgroundColor: colors.background,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    gap: 4,
+  },
+  kitchenItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notesBox: {
+    backgroundColor: '#FFF8EC',
+    padding: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  kitchenActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
 });
 
 const statTones = StyleSheet.create({

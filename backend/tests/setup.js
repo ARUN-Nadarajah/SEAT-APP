@@ -26,6 +26,7 @@ const Restaurant = require('../src/models/Restaurant');
 const Table = require('../src/models/Table');
 const Reservation = require('../src/models/Reservation');
 const QueueEntry = require('../src/models/QueueEntry');
+const Order = require('../src/models/Order');
 const Notification = require('../src/models/Notification');
 const AuthOtp = require('../src/models/AuthOtp');
 
@@ -155,6 +156,7 @@ if (!global.__SETUP_HOOKS_REGISTERED__) {
     await Promise.all([
       Reservation.deleteMany({}),
       QueueEntry.deleteMany({}),
+      Order.deleteMany({}),
       Notification.deleteMany({}),
       AuthOtp.deleteMany({}),
       Table.updateMany({}, { status: 'available' }),
@@ -180,6 +182,7 @@ async function clearAll() {
     Table.deleteMany({}),
     Reservation.deleteMany({}),
     QueueEntry.deleteMany({}),
+    Order.deleteMany({}),
     Notification.deleteMany({}),
     AuthOtp.deleteMany({}),
   ]);

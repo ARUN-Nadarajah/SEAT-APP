@@ -40,6 +40,7 @@ export function subscribeToRestaurant(
   const active = getSocket();
   active.emit('queue:subscribe', { restaurantId });
   active.emit('table:subscribe', { restaurantId });
+  active.emit('order:subscribe', { restaurantId });
 
   const entries = Object.entries(events);
   for (const [event, handler] of entries) {
@@ -51,6 +52,7 @@ export function subscribeToRestaurant(
       active.off(event, handler);
     }
     active.emit('queue:unsubscribe', { restaurantId });
+    active.emit('order:unsubscribe', { restaurantId });
   };
 }
 
@@ -76,4 +78,20 @@ export function onTableUpdated(
   handler: (payload: unknown) => void,
 ): Unsubscribe {
   return subscribeToRestaurant(restaurantId, { 'table:updated': handler });
+}
+
+/** Kitchen order updated (Sobiyan). */
+export function onOrderUpdated(
+  restaurantId: string,
+  handler: (payload: unknown) => void,
+): Unsubscribe {
+  return subscribeToRestaurant(restaurantId, { 'order:updated': handler });
+}
+
+/** Kitchen order ready for collection / service (Sobiyan). */
+export function onOrderReady(
+  restaurantId: string,
+  handler: (payload: unknown) => void,
+): Unsubscribe {
+  return subscribeToRestaurant(restaurantId, { 'order:ready': handler });
 }

@@ -94,6 +94,23 @@ export async function cancelBooking(id: string, reason = '') {
   return data;
 }
 
+/** Staff cancellation approval (Sobiyan). */
+export async function approveCancellation(id: string) {
+  const { data } = await apiClient.post<ApiEnvelope<{ reservation: Booking }>>(
+    `/reservations/${id}/approve-cancellation`,
+  );
+  return data;
+}
+
+/** Staff cancellation rejection (Sobiyan). */
+export async function rejectCancellation(id: string, comment?: string) {
+  const { data } = await apiClient.post<ApiEnvelope<{ reservation: Booking }>>(
+    `/reservations/${id}/reject-cancellation`,
+    { comment },
+  );
+  return data;
+}
+
 /** FR09 — today's list with search, for the staff dashboard. */
 export async function fetchStaffReservations(params: {
   restaurantId: string;

@@ -10,6 +10,9 @@ const {
   notifyReady,
   seat,
   remove,
+  markPreparing,
+  markReady,
+  markCollected,
 } = require("../controllers/queue.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
@@ -30,5 +33,8 @@ router.post("/staff/call-next", requireRole("staff", "manager"), callNext);
 router.post("/staff/:id/notify", requireRole("staff", "manager"), notifyReady);
 router.post("/staff/:id/seat", requireRole("staff", "manager"), seat);
 router.post("/staff/:id/remove", requireRole("staff", "manager"), remove);
+router.post("/staff/:id/preparing", requireRole("staff", "manager"), markPreparing);
+router.post("/staff/:id/ready", requireRole("staff", "manager"), markReady);
+router.post("/staff/:id/collect", requireRole("staff", "manager"), markCollected);
 
 module.exports = router;

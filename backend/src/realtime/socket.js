@@ -38,7 +38,15 @@ function createSocketServer(httpServer) {
       if (restaurantId) socket.join(roomName(restaurantId));
     });
 
+    socket.on("order:subscribe", ({ restaurantId } = {}) => {
+      if (restaurantId) socket.join(roomName(restaurantId));
+    });
+
     socket.on("queue:unsubscribe", ({ restaurantId } = {}) => {
+      if (restaurantId) socket.leave(roomName(restaurantId));
+    });
+
+    socket.on("order:unsubscribe", ({ restaurantId } = {}) => {
       if (restaurantId) socket.leave(roomName(restaurantId));
     });
 

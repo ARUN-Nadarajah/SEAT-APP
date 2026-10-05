@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Switch, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -73,6 +73,20 @@ export default function ProfileScreen() {
   async function onLogout() {
     await logout();
     router.replace('/(auth)/login');
+  }
+
+  async function onContactSupport() {
+    const emailUrl = 'mailto:hello@seat.lk?subject=Support%20Request';
+    try {
+      const canOpen = await Linking.canOpenURL(emailUrl);
+      if (canOpen) {
+        await Linking.openURL(emailUrl);
+      } else {
+        showToast('Please email us at hello@seat.lk', 'info');
+      }
+    } catch {
+      showToast('Please email us at hello@seat.lk', 'info');
+    }
   }
 
   return (
@@ -161,7 +175,7 @@ export default function ProfileScreen() {
             Need a hand? Email hello@seat.lk or call +94 21 220 0181 — we reply
             within one working day.
           </AppText>
-          <Button label="Contact support" variant="secondary" onPress={() => showToast('Opening your mail app is coming soon.', 'info')} />
+          <Button label="Contact support" variant="secondary" onPress={onContactSupport} />
         </Card>
 
         <Button
