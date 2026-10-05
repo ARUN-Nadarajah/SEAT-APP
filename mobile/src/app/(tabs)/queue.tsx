@@ -126,11 +126,11 @@ export default function QueueScreen() {
         </View>
         <EmptyState
           title="No waiting today. Yet."
-          message="If a restaurant is full, join its virtual queue and watch your spot move in real time — we’ll tell you when your table is ready."
+          message="If tables are full, join the virtual queue and watch your spot move in real time — we’ll tell you when your table is ready."
           glyph="⏳"
           action={
             <Button
-              label="Find a place to eat"
+              label="View Available Tables"
               onPress={() => router.push('/(tabs)/explore')}
               style={styles.emptyAction}
             />

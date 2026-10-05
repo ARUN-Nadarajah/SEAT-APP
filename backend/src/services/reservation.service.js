@@ -56,7 +56,7 @@ async function loadBlockingReservations(restaurantId, date) {
  * Spec §7: "if a slot becomes unavailable, offer other times" — the thrown
  * AppError carries `details.alternatives` so the UI can show them inline.
  */
-async function resolveTable({ restaurant, date, time, partySize }) {
+async function resolveTable({ restaurant, date, time, partySize, tableId }) {
   const startMinutes = timeToMinutes(time);
   if (startMinutes === null) {
     throw new AppError("Please choose a valid time.", 400, "validation_error");
@@ -66,6 +66,21 @@ async function resolveTable({ restaurant, date, time, partySize }) {
     Table.find({ restaurantId: restaurant._id, isActive: true }).lean(),
     loadBlockingReservations(restaurant._id, date),
   ]);
+
+  if (tableId) {
+    const selected = tables.find((t) => String(t._id) === String(tableId));
+    if (selected && selected.capacity >= partySize) {
+      const duration = seatingDuration(restaurant);
+      const endMinutes = startMinutes + duration;
+      const hasConflict = conflicts.some((c) => {
+        if (String(c.tableId) !== String(tableId)) return false;
+        return Math.max(startMinutes, c.start) < Math.min(endMinutes, c.end);
+      });
+      if (!hasConflict) {
+        return { table: selected, tables, conflicts, alternatives: [] };
+      }
+    }
+  }
 
   const free = freeTablesForSlot({
     tables,
@@ -137,7 +152,13 @@ async function createReservation(userId, payload) {
   }
 
   const user = await User.findById(userId);
-  const { table } = await resolveTable({ restaurant, date, time, partySize });
+  const { table } = await resolveTable({
+    restaurant,
+    date,
+    time,
+    partySize,
+    tableId: payload.tableId,
+  });
 
   const startMinutes = timeToMinutes(time);
   const endTime = minutesToTime(startMinutes + seatingDuration(restaurant));

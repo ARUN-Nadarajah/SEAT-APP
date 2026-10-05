@@ -10,15 +10,13 @@ const { requireRole } = require("../middleware/role.middleware");
 
 const router = express.Router();
 
-router.use(authenticate, requireRole("staff", "manager"));
-
-// Staff floor plan (FR08) — restaurant managers may also view.
+// Staff floor plan (FR08) and customer table browsing
 router.get("/", getTables);
 
 // Bulk (re)create — seed script and manager tooling.
-router.post("/", createTables);
+router.post("/", authenticate, requireRole("staff", "manager"), createTables);
 
 // FR08 — toggle Available / Occupied / Reserved.
-router.patch("/:id/status", updateTableStatus);
+router.patch("/:id/status", authenticate, requireRole("staff", "manager"), updateTableStatus);
 
 module.exports = router;

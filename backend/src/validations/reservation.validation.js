@@ -48,6 +48,7 @@ function assertOptionalText(value, maxLength, fieldName) {
 function validateCreateReservation(payload = {}) {
   return {
     restaurantId: assertObjectId(payload.restaurantId, "restaurantId"),
+    tableId: payload.tableId ? assertObjectId(payload.tableId, "tableId") : undefined,
     date: assertDate(payload.date),
     time: assertTime(payload.time),
     partySize: assertIntRange(payload.partySize, {

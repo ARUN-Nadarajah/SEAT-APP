@@ -22,10 +22,14 @@ function validateTableStatus(params = {}, body = {}) {
 
 /** GET /api/tables?restaurantId= */
 function validateTableQuery(query = {}) {
-  if (!query.restaurantId) {
-    throw new AppError("restaurantId is required.", 400, "validation_error");
+  const result = {};
+  if (query.restaurantId) {
+    result.restaurantId = assertObjectId(query.restaurantId, "restaurantId");
   }
-  return { restaurantId: assertObjectId(query.restaurantId, "restaurantId") };
+  if (query.date) {
+    result.date = String(query.date);
+  }
+  return result;
 }
 
 module.exports = {
