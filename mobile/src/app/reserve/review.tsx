@@ -73,6 +73,12 @@ export default function ReviewScreen() {
       if (slotError) {
         setError(slotError.message);
         setAlternatives(slotError.alternatives);
+      } else if (
+        (caught as { response?: { status?: number } }).response?.status === 401
+      ) {
+        showToast('Please sign in before confirming your reservation.', 'error');
+        router.replace('/(auth)/login');
+        return;
       } else {
         setError(apiErrorMessage(caught));
       }
