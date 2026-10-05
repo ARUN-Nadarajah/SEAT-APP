@@ -80,7 +80,7 @@ async function notifyEligibleOffers(userId, restaurantId) {
       type: "offer",
       title: "You unlocked a new offer",
       body: `${offer.title} is now available because you completed ${completedReservations} reservation${completedReservations === 1 ? "" : "s"}.`,
-      route: `/restaurants/${restaurantId}/offers`,
+      route: `/offer/${offer._id}?restaurantId=${restaurantId}`,
       data: { offerId: String(offer._id), restaurantId: String(restaurantId) },
       referenceId: offer._id,
     });

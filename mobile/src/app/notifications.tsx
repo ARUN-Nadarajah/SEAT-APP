@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -17,8 +17,10 @@ import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
   fetchNotifications,
+  fetchEligibleOffers,
   markAllNotificationsRead,
   markNotificationRead,
+  type Offer,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
@@ -36,6 +38,7 @@ const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 export default function NotificationsScreen() {
   const { showToast } = useFeedback();
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
+  const [expandedOfferId, setExpandedOfferId] = useState<string | null>(null);
 
   const query = useApiQuery(['notifications', filter], () =>
     fetchNotifications(filter === 'unread'),
@@ -43,12 +46,30 @@ export default function NotificationsScreen() {
 
   const rows = query.data?.data ?? [];
   const unread = query.data?.unreadCount ?? 0;
+  const expandedNotification = rows.find(
+    (item) => item.id === expandedOfferId && item.type === 'offer',
+  );
+  const offerId = expandedNotification?.data.offerId;
+  const restaurantId = expandedNotification?.data.restaurantId;
+  const offerQuery = useApiQuery(
+    ['notification-offer', String(offerId ?? ''), String(restaurantId ?? '')],
+    () => fetchEligibleOffers(String(restaurantId)),
+    { enabled: Boolean(expandedOfferId && offerId && restaurantId) },
+  );
+  const expandedOffer = offerQuery.data?.data?.find(
+    (offer) => String(offer.id) === String(offerId),
+  );
 
   async function onOpen(id: string, route?: string) {
     try {
+      const notification = rows.find((item) => item.id === id);
       await markNotificationRead(id);
       query.refetch();
-      if (route) router.push(route as never);
+      if (notification?.type === 'offer') {
+        setExpandedOfferId((current) => (current === id ? null : id));
+      } else if (route) {
+        router.push(route as never);
+      }
     } catch (error) {
       showToast(apiErrorMessage(error), 'error');
     }
@@ -120,33 +141,48 @@ export default function NotificationsScreen() {
         ) : (
           <View style={styles.list}>
             {rows.map((item) => (
-              <Pressable
-                key={item.id}
-                onPress={() => onOpen(item.id, item.route)}
-                style={[styles.item, !item.read && styles.itemUnread]}
-                accessibilityRole="button"
-                accessibilityLabel={`${item.title}. ${item.body}`}
-              >
-                <View style={[styles.icon, !item.read && styles.iconUnread]}>
-                  <Ionicons
-                    name={TYPE_ICONS[item.type] ?? 'notifications-outline'}
-                    size={17}
-                    color={colors.primary}
-                  />
-                </View>
-                <View style={styles.itemBody}>
-                  <View style={styles.itemTop}>
-                    <AppText variant="label" style={styles.itemTitle} numberOfLines={1}>
-                      {item.title}
-                    </AppText>
-                    {!item.read ? <Badge label="New" tone="accent" /> : null}
+              <View key={item.id} style={styles.notificationGroup}>
+                <Pressable
+                  onPress={() => onOpen(item.id, item.route)}
+                  style={[styles.item, !item.read && styles.itemUnread]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${item.title}. ${item.body}`}
+                >
+                  <View style={[styles.icon, !item.read && styles.iconUnread]}>
+                    <Ionicons
+                      name={TYPE_ICONS[item.type] ?? 'notifications-outline'}
+                      size={17}
+                      color={colors.primary}
+                    />
                   </View>
-                  <AppText variant="secondary" numberOfLines={2}>
-                    {item.body}
-                  </AppText>
-                  <AppText variant="caption">{relativeTime(item.createdAt)}</AppText>
-                </View>
-              </Pressable>
+                  <View style={styles.itemBody}>
+                    <View style={styles.itemTop}>
+                      <AppText variant="label" style={styles.itemTitle} numberOfLines={1}>
+                        {item.title}
+                      </AppText>
+                      {!item.read ? <Badge label="New" tone="accent" /> : null}
+                      {item.type === 'offer' ? (
+                        <Ionicons
+                          name={expandedOfferId === item.id ? 'chevron-up' : 'chevron-down'}
+                          size={18}
+                          color={colors.primary}
+                        />
+                      ) : null}
+                    </View>
+                    <AppText variant="secondary" numberOfLines={2}>
+                      {item.body}
+                    </AppText>
+                    <AppText variant="caption">{relativeTime(item.createdAt)}</AppText>
+                  </View>
+                </Pressable>
+                {expandedOfferId === item.id ? (
+                  <OfferCard
+                    offer={expandedOffer}
+                    restaurantId={String(restaurantId ?? '')}
+                    loading={offerQuery.isLoading}
+                  />
+                ) : null}
+              </View>
             ))}
           </View>
         )}
@@ -187,6 +223,97 @@ function relativeTime(value: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+function OfferCard({
+  offer,
+  restaurantId,
+  loading,
+}: {
+  offer?: Offer;
+  restaurantId: string;
+  loading: boolean;
+}) {
+  if (loading) {
+    return <View style={styles.offerCard}><RowSkeleton count={2} /></View>;
+  }
+  if (!offer) {
+    return (
+      <View style={styles.offerCard}>
+        <AppText variant="caption">This offer is no longer available.</AppText>
+      </View>
+    );
+  }
+
+  const numericValue = offer.value.replace(/[^\d.]/g, '');
+  const discount = offer.type === 'Percentage' ? `${numericValue}% OFF` : `Rs. ${numericValue}`;
+
+  return (
+    <View style={styles.offerCard}>
+      <Image source={{ uri: offer.image }} style={styles.offerImage} accessibilityLabel="Offer image" />
+      <View style={styles.offerDetails}>
+        <View style={styles.exclusiveBadge}>
+          <Ionicons name="gift-outline" size={14} color={colors.danger} />
+          <AppText variant="caption" style={styles.exclusiveText}>Exclusive Offer</AppText>
+        </View>
+        <AppText variant="heading" style={styles.offerTitle}>{offer.title}</AppText>
+        <AppText variant="display" style={styles.offerDiscount}>{discount}</AppText>
+        <AppText variant="body" style={styles.offerSubtitle}>on your next visit</AppText>
+        <AppText variant="secondary" style={styles.offerDescription}>{offer.description}</AppText>
+        <View style={styles.offerInfo}>
+          <OfferInfoRow
+            icon="calendar-outline"
+            label="Valid Period"
+            value={`${formatOfferDate(offer.startDate)} - ${formatOfferDate(offer.endDate)}`}
+          />
+          <OfferInfoRow
+            icon="people-outline"
+            label="Eligibility"
+            value={`You are eligible (${offer.requiredReservations} completed reservation${offer.requiredReservations === 1 ? '' : 's'})`}
+            success
+          />
+        </View>
+        <Pressable
+          style={styles.bookButton}
+          onPress={() => restaurantId && router.push(`/restaurant/${restaurantId}` as never)}
+          accessibilityRole="button"
+          accessibilityLabel="Book a table"
+        >
+          <Ionicons name="calendar-outline" size={17} color={colors.textOnPrimary} />
+          <AppText variant="label" style={styles.bookButtonText}>Book a Table</AppText>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function formatOfferDate(value: string) {
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day} ${new Date(Number(year), Number(month) - 1).toLocaleString(undefined, { month: 'short' })} ${year}` : value;
+}
+
+function OfferInfoRow({
+  icon,
+  label,
+  value,
+  success = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+  success?: boolean;
+}) {
+  return (
+    <View style={styles.offerInfoRow}>
+      <Ionicons name={icon} size={21} color={colors.textSecondary} />
+      <View style={styles.offerInfoText}>
+        <AppText variant="caption" style={styles.offerInfoLabel}>{label}</AppText>
+        <AppText variant="bodyMedium" style={success ? styles.offerEligibility : undefined}>
+          {value}
+        </AppText>
+      </View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -234,6 +361,7 @@ const styles = StyleSheet.create({
   chipTextActive: { color: colors.textOnPrimary },
   content: { padding: spacing.lg, paddingBottom: spacing['4xl'], gap: spacing.lg },
   list: { gap: spacing.sm },
+  notificationGroup: { gap: spacing.xs },
   item: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -256,4 +384,59 @@ const styles = StyleSheet.create({
   itemBody: { flex: 1, gap: 3 },
   itemTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   itemTitle: { flex: 1 },
+  offerCard: {
+    marginTop: spacing.xs,
+    backgroundColor: '#FFFDFC',
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: '#F0B8AE',
+    overflow: 'hidden',
+  },
+  offerImage: {
+    width: '100%',
+    height: 172,
+    backgroundColor: colors.primarySoft,
+  },
+  offerDetails: { padding: spacing.lg, alignItems: 'center', gap: spacing.xs },
+  exclusiveBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    backgroundColor: '#FDE6E2',
+    marginTop: -spacing.xs,
+  },
+  exclusiveText: { color: colors.danger },
+  offerTitle: { color: colors.primary, textAlign: 'center', marginTop: spacing.xs },
+  offerDiscount: { color: '#E53935', fontSize: 32, lineHeight: 38 },
+  offerSubtitle: { color: colors.primary, marginTop: -spacing.xs },
+  offerDescription: { textAlign: 'center', maxWidth: 330, marginTop: spacing.xs },
+  offerInfo: {
+    width: '100%',
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    gap: spacing.md,
+  },
+  offerInfoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  offerInfoText: { flex: 1, gap: 2 },
+  offerInfoLabel: { color: colors.textSecondary },
+  offerEligibility: { color: '#2E7D32' },
+  bookButton: {
+    width: '100%',
+    minHeight: 46,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  bookButtonText: {
+    color: colors.textOnPrimary,
+  },
 });

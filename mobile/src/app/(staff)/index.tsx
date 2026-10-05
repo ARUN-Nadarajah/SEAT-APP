@@ -715,6 +715,16 @@ export default function StaffDashboardScreen() {
                         </AppText>
                         <AppText
                           variant="caption"
+                          numberOfLines={1}
+                          style={[
+                            styles.tableLocation,
+                            table.status !== 'available' && styles.tableCellTextInverse,
+                          ]}
+                        >
+                          {table.location?.trim() || 'Location not set'}
+                        </AppText>
+                        <AppText
+                          variant="caption"
                           style={
                             table.status === 'available' ? undefined : styles.tableCellTextInverse
                           }
@@ -1434,6 +1444,11 @@ const styles = StyleSheet.create({
   tableReserved: { backgroundColor: colors.warning, borderColor: colors.warning },
   tableMaintenance: { backgroundColor: colors.textMuted, borderColor: colors.textMuted },
   tableCellTextInverse: { color: colors.textOnPrimary },
+  tableLocation: {
+    maxWidth: '100%',
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
   tableStatusBadge: {
     position: 'absolute',
     top: spacing.xs,
