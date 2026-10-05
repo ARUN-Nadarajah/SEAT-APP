@@ -6,6 +6,7 @@ const reservationService = require("../services/reservation.service");
 const {
   validateCreateReservation,
   validateUpdateReservation,
+  validateCancellationRequest,
 } = require("../validations/reservation.validation");
 
 /**
@@ -44,7 +45,21 @@ const updateReservation = [
   }),
 ];
 
-/** DELETE /api/reservations/:id — cancel (FR07, app shows confirm dialog). */
+/** POST /api/reservations/:id/cancel-request — request cancellation (FR07). */
+const requestCancellation = [
+  validateBody(validateCancellationRequest),
+  asyncHandler(async (req, res) => {
+    const id = assertObjectId(req.params.id, "reservationId");
+    const result = await reservationService.requestCancellation(
+      id,
+      req.user,
+      req.body.reason,
+    );
+    success(res, result);
+  }),
+];
+
+/** DELETE /api/reservations/:id — cancel (FR07, customer request flow or staff cancel). */
 const cancelReservation = asyncHandler(async (req, res) => {
   const id = assertObjectId(req.params.id, "reservationId");
   const reason = String(req.body?.reason || "");
@@ -92,6 +107,7 @@ module.exports = {
   createReservation,
   getReservationById,
   updateReservation,
+  requestCancellation,
   cancelReservation,
   getStaffReservations,
   checkIn,

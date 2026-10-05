@@ -115,6 +115,26 @@ function validateStaffListQuery(query = {}) {
   };
 }
 
+/** POST /api/reservations/:id/cancel-request */
+function validateCancellationRequest(payload = {}) {
+  const reason = String(payload.reason || "").trim();
+  if (!reason) {
+    throw new AppError(
+      "A cancellation reason is required.",
+      400,
+      "validation_error",
+    );
+  }
+  if (reason.length > 300) {
+    throw new AppError(
+      "Cancellation reason must be 300 characters or fewer.",
+      400,
+      "validation_error",
+    );
+  }
+  return { reason };
+}
+
 module.exports = {
   assertTime,
   assertDate,
@@ -123,4 +143,5 @@ module.exports = {
   validateUpdateReservation,
   validateReservationQuery,
   validateStaffListQuery,
+  validateCancellationRequest,
 };

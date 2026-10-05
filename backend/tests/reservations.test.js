@@ -83,18 +83,113 @@ describe('Reservations (FR02, FR07)', () => {
     expect(response.body.details.alternatives[0]).toHaveProperty('label');
   });
 
-  test('cancels a booking and releases the table (FR07)', async () => {
-    const created = await makeBooking({ partySize: 6 });
+  test('rejects booking when selected table capacity is smaller than party size (capacity validation)', async () => {
+    const tableId2 = fixture.tableIds[0]; // T01 has capacity 2
 
-    const cancelled = await api(fixture.tokens.customer)
-      .delete(`/api/reservations/${created.id}`)
-      .send({ reason: 'plans changed' })
+    const response = await api(fixture.tokens.customer)
+      .post('/api/reservations')
+      .send({
+        restaurantId: fixture.restaurantId,
+        tableId: tableId2,
+        date: today(),
+        time: '19:00',
+        partySize: 4, // 4 guests exceeds capacity 2
+      })
+      .expect(400);
+
+    expect(response.body.code).toBe('validation_error');
+    expect(response.body.message).toMatch(/can seat at most 2 guests/i);
+  });
+
+  test('allows booking when selected table capacity accommodates party size', async () => {
+    const tableId2 = fixture.tableIds[0]; // T01 has capacity 2
+
+    const response = await api(fixture.tokens.customer)
+      .post('/api/reservations')
+      .send({
+        restaurantId: fixture.restaurantId,
+        tableId: tableId2,
+        date: today(),
+        time: '19:00',
+        partySize: 2,
+      })
+      .expect(201);
+
+    expect(response.body.data.reservation.tableNumber).toBe('T01');
+    expect(response.body.data.reservation.partySize).toBe(2);
+  });
+
+  test('valid cancellation request transitions confirmed to cancellation_pending and stores reason', async () => {
+    const created = await makeBooking({ partySize: 2 });
+
+    const response = await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: 'Family emergency, cannot attend' })
       .expect(200);
 
-    expect(cancelled.body.data.reservation.status).toBe('cancelled');
+    const resData = response.body.data.reservation;
+    expect(resData.status).toBe('cancellation_pending');
+    expect(resData.cancellationReason).toBe('Family emergency, cannot attend');
+    expect(resData.cancellationRequestedAt).toBeTruthy();
 
-    // The table is free again — a second six-top booking succeeds.
+    // Verify detail endpoint also reflects cancellation_pending
+    const fetched = await api(fixture.tokens.customer)
+      .get(`/api/reservations/${created.id}`)
+      .expect(200);
+
+    expect(fetched.body.data.status).toBe('cancellation_pending');
+    expect(fetched.body.data.cancellationReason).toBe('Family emergency, cannot attend');
+  });
+
+  test('rejects empty or whitespace cancellation reason with 400 validation error', async () => {
+    const created = await makeBooking({ partySize: 2 });
+
+    const emptyResponse = await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: '' })
+      .expect(400);
+
+    expect(emptyResponse.body.code).toBe('validation_error');
+
+    const whitespaceResponse = await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: '   ' })
+      .expect(400);
+
+    expect(whitespaceResponse.body.code).toBe('validation_error');
+  });
+
+  test('rejects duplicate cancellation request with 409 conflict', async () => {
+    const created = await makeBooking({ partySize: 2 });
+
+    // First cancellation request succeeds
     await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: 'Plans changed' })
+      .expect(200);
+
+    // Second request is rejected with 409 conflict
+    const duplicate = await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: 'Plans changed again' })
+      .expect(409);
+
+    expect(duplicate.body.code).toBe('conflict');
+  });
+
+  test('table remains held while cancellation is pending (no double booking / release)', async () => {
+    // Only one table seats six (T04), book it at 20:00
+    const created = await makeBooking({ partySize: 6, time: '20:00' });
+
+    // Request cancellation -> status becomes cancellation_pending
+    await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: 'Might not make it' })
+      .expect(200);
+
+    // A second booking attempt for 6 guests at 20:00 MUST STILL FAIL with 409
+    // because the table is NOT released while cancellation is pending
+    const secondAttempt = await api(fixture.tokens.customer)
       .post('/api/reservations')
       .send({
         restaurantId: fixture.restaurantId,
@@ -102,7 +197,36 @@ describe('Reservations (FR02, FR07)', () => {
         time: '20:00',
         partySize: 6,
       })
-      .expect(201);
+      .expect(409);
+
+    expect(secondAttempt.body.code).toBe('slot_unavailable');
+  });
+
+  test('cannot modify a reservation while cancellation is pending review', async () => {
+    const created = await makeBooking({ partySize: 2 });
+
+    await api(fixture.tokens.customer)
+      .post(`/api/reservations/${created.id}/cancel-request`)
+      .send({ reason: 'Need to cancel' })
+      .expect(200);
+
+    const modifyResponse = await api(fixture.tokens.customer)
+      .put(`/api/reservations/${created.id}`)
+      .send({ partySize: 4 })
+      .expect(409);
+
+    expect(modifyResponse.body.code).toBe('cancellation_pending');
+  });
+
+  test('DELETE endpoint also runs cancellation request workflow for customer', async () => {
+    const created = await makeBooking({ partySize: 2 });
+
+    const response = await api(fixture.tokens.customer)
+      .delete(`/api/reservations/${created.id}`)
+      .send({ reason: 'Customer requested cancellation via delete' })
+      .expect(200);
+
+    expect(response.body.data.reservation.status).toBe('cancellation_pending');
   });
 
   test('rejects invalid input with 400', async () => {

@@ -5,6 +5,7 @@ const {
   createReservation,
   getReservationById,
   updateReservation,
+  requestCancellation,
   cancelReservation,
   getStaffReservations,
   checkIn,
@@ -27,6 +28,7 @@ router.get("/", getReservations);
 router.post("/", createReservation);
 router.get("/:id", getReservationById);
 router.put("/:id", updateReservation);
+router.post("/:id/cancel-request", requestCancellation);
 router.delete("/:id", cancelReservation);
 
 // --- Staff actions ---

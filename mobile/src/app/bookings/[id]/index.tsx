@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -9,6 +10,7 @@ import {
   Button,
   Card,
   ErrorState,
+  Field,
   InfoBox,
   Skeleton,
   useFeedback,
@@ -16,19 +18,24 @@ import {
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
-  cancelBooking,
   fetchBooking,
+  requestCancellation,
   type Booking,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
 /**
  * Reservation Details (spec §5): Change / Cancel sit directly on the screen.
- * Cancelling requires a confirmation dialog (FR07 + spec §9 error prevention).
+ * Cancelling requires a non-empty reason and staff approval (FR07).
  */
 export default function ReservationDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { confirm, showToast } = useFeedback();
+  const { showToast } = useFeedback();
+
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [submittingCancellation, setSubmittingCancellation] = useState(false);
 
   const query = useApiQuery(['booking', id], () => fetchBooking(id!), {
     enabled: Boolean(id),
@@ -62,24 +69,27 @@ export default function ReservationDetailsScreen() {
     );
   }
 
+  const isPendingCancellation = booking.status === 'cancellation_pending';
   const closed = ['cancelled', 'completed', 'no-show'].includes(booking.status);
 
-  async function onCancel() {
-    const accepted = await confirm({
-      title: 'Cancel this reservation?',
-      message:
-        'Your table will be released for other guests. This can’t be undone — you’d need to book again.',
-      confirmLabel: 'Yes, cancel it',
-      cancelLabel: 'Keep my booking',
-      destructive: true,
-    });
-    if (!accepted || !booking) return;
+  async function onSubmitCancellation() {
+    const trimmed = cancellationReason.trim();
+    if (!trimmed) {
+      setReasonError('Please provide a reason for cancellation.');
+      return;
+    }
+    setSubmittingCancellation(true);
+    setReasonError(null);
 
     try {
-      await cancelBooking(booking.id, 'Cancelled by guest');
-      router.replace({ pathname: '/bookings/cancelled', params: { bookingId: booking.bookingId } });
+      await requestCancellation(booking!.id, trimmed);
+      setCancelModalVisible(false);
+      showToast('Cancellation request submitted for staff review.', 'success');
+      await query.refetch();
     } catch (error) {
       showToast(apiErrorMessage(error), 'error');
+    } finally {
+      setSubmittingCancellation(false);
     }
   }
 
@@ -100,13 +110,19 @@ export default function ReservationDetailsScreen() {
             <AppText variant="secondary">{booking.restaurant?.address}</AppText>
           </View>
           <Badge
-            label={booking.status}
+            label={
+              booking.status === 'cancellation_pending'
+                ? 'Cancellation Pending Review'
+                : booking.status
+            }
             tone={
-              booking.status === 'cancelled' || booking.status === 'no-show'
-                ? 'danger'
-                : booking.status === 'checked-in'
-                  ? 'success'
-                  : 'neutral'
+              booking.status === 'cancellation_pending'
+                ? 'warning'
+                : booking.status === 'cancelled' || booking.status === 'no-show'
+                  ? 'danger'
+                  : booking.status === 'checked-in'
+                    ? 'success'
+                    : 'neutral'
             }
           />
         </View>
@@ -150,6 +166,20 @@ export default function ReservationDetailsScreen() {
           </InfoBox>
         ) : null}
 
+        {booking.status === 'cancellation_pending' ? (
+          <InfoBox tone="warning">
+            <AppText variant="label">Cancellation Pending Review</AppText>
+            <AppText variant="secondary">
+              Your cancellation request has been submitted and is awaiting staff review. Your reservation and table remain held until reviewed.
+            </AppText>
+            {booking.cancellationReason ? (
+              <AppText variant="caption" style={styles.reasonText}>
+                Reason: {booking.cancellationReason}
+              </AppText>
+            ) : null}
+          </InfoBox>
+        ) : null}
+
         {booking.status === 'cancelled' ? (
           <InfoBox tone="danger">
             <AppText variant="label">This booking was cancelled</AppText>
@@ -159,8 +189,16 @@ export default function ReservationDetailsScreen() {
           </InfoBox>
         ) : null}
 
-        {/* FR07 — change and cancel directly available */}
-        {!closed ? (
+        {/* FR07 — change and cancel actions */}
+        {isPendingCancellation ? (
+          <View style={styles.actions}>
+            <Button
+              label="Cancellation pending review"
+              variant="ghost"
+              disabled
+            />
+          </View>
+        ) : !closed ? (
           <View style={styles.actions}>
             <Button
               label="Change reservation"
@@ -173,9 +211,13 @@ export default function ReservationDetailsScreen() {
               testID="change-reservation"
             />
             <Button
-              label="Cancel reservation"
+              label="Request cancellation"
               variant="danger"
-              onPress={onCancel}
+              onPress={() => {
+                setCancellationReason('');
+                setReasonError(null);
+                setCancelModalVisible(true);
+              }}
               testID="cancel-reservation"
             />
           </View>
@@ -188,6 +230,53 @@ export default function ReservationDetailsScreen() {
 
         <Button label="Back to bookings" variant="ghost" onPress={() => router.replace('/(tabs)/bookings')} />
       </ScrollView>
+
+      {/* Cancellation Request Modal */}
+      <Modal
+        visible={cancelModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!submittingCancellation) setCancelModalVisible(false);
+        }}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <AppText variant="title">Request Cancellation</AppText>
+            <AppText variant="secondary" style={styles.modalDescription}>
+              Your table remains held until restaurant staff reviews and approves your request. Please tell us why you need to cancel:
+            </AppText>
+
+            <Field
+              label="Reason for cancellation"
+              placeholder="e.g. Schedule change, emergency..."
+              value={cancellationReason}
+              onChangeText={(text) => {
+                setCancellationReason(text);
+                if (reasonError) setReasonError(null);
+              }}
+              multiline
+              error={reasonError || undefined}
+              maxLength={300}
+            />
+
+            <View style={styles.modalActions}>
+              <Button
+                label={submittingCancellation ? 'Submitting...' : 'Submit cancellation request'}
+                variant="danger"
+                onPress={onSubmitCancellation}
+                disabled={submittingCancellation}
+              />
+              <Button
+                label="Keep my reservation"
+                variant="ghost"
+                onPress={() => setCancelModalVisible(false)}
+                disabled={submittingCancellation}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -271,4 +360,29 @@ const styles = StyleSheet.create({
   detailLabel: { width: 64 },
   detailValue: { flex: 1, textAlign: 'right' },
   actions: { gap: spacing.sm },
+  reasonText: { marginTop: spacing.xs, fontStyle: 'italic' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalDescription: {
+    lineHeight: 20,
+  },
+  modalActions: {
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
 });

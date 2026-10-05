@@ -6,7 +6,7 @@ const Table = require("../models/Table");
 const User = require("../models/User");
 
 const { AppError } = require("../utils/errors");
-const { notify } = require("./notification.service");
+const { notify, notifyRestaurantStaff } = require("./notification.service");
 const {
   normalizeDate,
   today,
@@ -40,12 +40,12 @@ async function getRestaurantOrThrow(restaurantId) {
   return restaurant;
 }
 
-/** Reservations still holding tables for a date. */
+/** Reservations still holding tables for a date (including pending cancellation). */
 async function loadBlockingReservations(restaurantId, date) {
   const reservations = await Reservation.find({
     restaurantId,
     date,
-    status: { $in: ["confirmed", "checked-in"] },
+    status: { $in: ["confirmed", "checked-in", "cancellation_pending"] },
   }).lean();
   return blockingReservations(reservations);
 }
@@ -69,17 +69,33 @@ async function resolveTable({ restaurant, date, time, partySize, tableId }) {
 
   if (tableId) {
     const selected = tables.find((t) => String(t._id) === String(tableId));
-    if (selected && selected.capacity >= partySize) {
-      const duration = seatingDuration(restaurant);
-      const endMinutes = startMinutes + duration;
-      const hasConflict = conflicts.some((c) => {
-        if (String(c.tableId) !== String(tableId)) return false;
-        return Math.max(startMinutes, c.start) < Math.min(endMinutes, c.end);
-      });
-      if (!hasConflict) {
-        return { table: selected, tables, conflicts, alternatives: [] };
-      }
+    if (!selected) {
+      throw new AppError("Selected table not found.", 404, "not_found");
     }
+    if (selected.capacity < partySize) {
+      throw new AppError(
+        `Selected table ${selected.tableNumber} can seat at most ${selected.capacity} guests.`,
+        400,
+        "validation_error",
+      );
+    }
+
+    const duration = seatingDuration(restaurant);
+    const endMinutes = startMinutes + duration;
+    const hasConflict = conflicts.some((c) => {
+      if (String(c.tableId) !== String(tableId)) return false;
+      return Math.max(startMinutes, c.start) < Math.min(endMinutes, c.end);
+    });
+
+    if (hasConflict) {
+      throw new AppError(
+        `Selected table ${selected.tableNumber} is not available at that time.`,
+        409,
+        "slot_unavailable",
+      );
+    }
+
+    return { table: selected, tables, conflicts, alternatives: [] };
   }
 
   const free = freeTablesForSlot({
@@ -278,6 +294,8 @@ function shapeForCustomer(entry) {
     createdAt: entry.createdAt,
     checkedInAt: entry.checkedInAt,
     cancelledAt: entry.cancelledAt,
+    cancellationRequestedAt: entry.cancellationRequestedAt || null,
+    cancellationReason: entry.cancellationReason || "",
   };
 }
 
@@ -322,6 +340,14 @@ async function updateReservation(id, requestingUser, payload) {
   const isOwner = String(reservation.userId) === String(requestingUser._id);
   if (!isOwner && !["staff", "manager"].includes(requestingUser.role)) {
     throw new AppError("You do not have permission to change this booking.", 403, "forbidden");
+  }
+
+  if (reservation.status === "cancellation_pending") {
+    throw new AppError(
+      "Cannot modify a booking while a cancellation request is pending review.",
+      409,
+      "cancellation_pending",
+    );
   }
 
   if (["cancelled", "completed", "no-show"].includes(reservation.status)) {
@@ -425,8 +451,90 @@ async function updateReservation(id, requestingUser, payload) {
 }
 
 /**
+ * POST /api/reservations/:id/cancel-request — customer requests cancellation (FR07).
+ * Status transitions: confirmed -> cancellation_pending.
+ * Table is NOT released while pending staff review.
+ */
+async function requestCancellation(id, requestingUser, rawReason) {
+  const reservation = await Reservation.findById(id);
+  if (!reservation) {
+    throw new AppError("Reservation not found.", 404, "not_found");
+  }
+
+  const isOwner = String(reservation.userId) === String(requestingUser._id);
+  const isStaff = ["staff", "manager"].includes(requestingUser.role);
+  if (!isOwner && !isStaff) {
+    throw new AppError(
+      "You do not have permission to request cancellation for this booking.",
+      403,
+      "forbidden",
+    );
+  }
+
+  const reason = String(rawReason || "").trim();
+  if (!reason) {
+    throw new AppError(
+      "A cancellation reason is required.",
+      400,
+      "validation_error",
+    );
+  }
+
+  if (reservation.status === "cancellation_pending") {
+    throw new AppError(
+      "A cancellation request is already pending review for this reservation.",
+      409,
+      "conflict",
+    );
+  }
+
+  if (["cancelled", "completed", "no-show"].includes(reservation.status)) {
+    throw new AppError("This booking is already closed.", 409, "reservation_closed");
+  }
+
+  reservation.status = "cancellation_pending";
+  reservation.cancellationReason = reason;
+  reservation.cancellationRequestedAt = new Date();
+  await reservation.save();
+
+  // Note: Do NOT release the table while cancellation is pending.
+  // The table remains held and blocking for availability.
+
+  await notifyRestaurantStaff(reservation.restaurantId, {
+    type: "reservation",
+    title: "Cancellation Request Received",
+    body: `Cancellation requested for booking ${reservation.bookingId}: "${reason}".`,
+    route: `/staff/reservations/${reservation._id}`,
+    data: {
+      reservationId: String(reservation._id),
+      bookingId: reservation.bookingId,
+    },
+  });
+
+  await notify({
+    userId: reservation.userId,
+    type: "reservation",
+    title: "Cancellation Requested",
+    body: "Your cancellation request has been submitted and is pending staff review.",
+    route: `/bookings/${reservation.bookingId}`,
+    channel: "push",
+  });
+
+  const updated = await Reservation.findById(id)
+    .populate("restaurantId", "name cuisine images address city rating")
+    .populate("tableId", "tableNumber capacity")
+    .lean();
+
+  return {
+    message: "Cancellation request submitted.",
+    data: { reservation: shapeForCustomer(updated) },
+  };
+}
+
+/**
  * DELETE /api/reservations/:id — cancel (FR07).
- * The confirmation dialog lives in the app; the API just performs it.
+ * If invoked by customer, runs the cancellation-request workflow.
+ * If invoked by staff, processes immediate cancellation.
  */
 async function cancelReservation(id, requestingUser, reason = "") {
   const reservation = await Reservation.findById(id);
@@ -435,8 +543,14 @@ async function cancelReservation(id, requestingUser, reason = "") {
   }
 
   const isOwner = String(reservation.userId) === String(requestingUser._id);
-  if (!isOwner && !["staff", "manager"].includes(requestingUser.role)) {
+  const isStaff = ["staff", "manager"].includes(requestingUser.role);
+  if (!isOwner && !isStaff) {
     throw new AppError("You do not have permission to cancel this booking.", 403, "forbidden");
+  }
+
+  // Customer must go through the cancellation-request workflow
+  if (!isStaff) {
+    return requestCancellation(id, requestingUser, reason);
   }
 
   if (["cancelled", "completed", "no-show"].includes(reservation.status)) {
@@ -445,7 +559,7 @@ async function cancelReservation(id, requestingUser, reason = "") {
 
   reservation.status = "cancelled";
   reservation.cancelledAt = new Date();
-  reservation.cancellationReason = reason || "";
+  reservation.cancellationReason = String(reason || "").trim();
   await reservation.save();
 
   // Release the floor plan slot again (FR08).
@@ -463,9 +577,14 @@ async function cancelReservation(id, requestingUser, reason = "") {
     channel: "push",
   });
 
+  const updated = await Reservation.findById(id)
+    .populate("restaurantId", "name cuisine images address city rating")
+    .populate("tableId", "tableNumber capacity")
+    .lean();
+
   return {
     message: "Reservation cancelled.",
-    data: { reservation: { id: reservation._id, bookingId: reservation.bookingId, status: reservation.status } },
+    data: { reservation: shapeForCustomer(updated) },
   };
 }
 
@@ -571,6 +690,7 @@ module.exports = {
   listMine,
   getReservationById,
   updateReservation,
+  requestCancellation,
   cancelReservation,
   listForStaff,
   checkIn,
