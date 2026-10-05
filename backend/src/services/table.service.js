@@ -83,13 +83,19 @@ async function createTable({ restaurantId, tableNumber, capacity, location, type
  * GET /api/tables — floor plan for the staff dashboard grid (FR08).
  */
 async function listTables({ restaurantId, date }) {
-  if (!restaurantId) {
-    throw new AppError("restaurantId is required.", 400, "validation_error");
+  let targetRestaurantId = restaurantId;
+  if (!targetRestaurantId) {
+    const defaultRestaurant = await Restaurant.findOne({ status: { $ne: "inactive" } }).lean();
+    if (defaultRestaurant) {
+      targetRestaurantId = defaultRestaurant._id;
+    } else {
+      throw new AppError("restaurantId is required.", 400, "validation_error");
+    }
   }
 
   const bookingDate = date || today();
 
-  const tables = await Table.find({ restaurantId })
+  const tables = await Table.find({ restaurantId: targetRestaurantId })
     .sort({ tableNumber: 1 })
     .lean();
 

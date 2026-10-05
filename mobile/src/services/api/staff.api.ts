@@ -8,8 +8,8 @@ import type {
   TableSummary,
 } from './types';
 
-/** Tables (FR08) — staff floor-plan grid. */
-export async function fetchTables(restaurantId: string, date?: string) {
+/** Tables (FR08) — staff floor-plan grid and customer floor plan. */
+export async function fetchTables(restaurantId?: string, date?: string) {
   const { data } = await apiClient.get<
     ApiEnvelope<Table[]> & { summary: TableSummary }
   >('/tables', { params: { restaurantId, date } });

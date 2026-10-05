@@ -15,7 +15,12 @@ import {
   Skeleton,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
-import { apiErrorMessage, fetchRestaurant, type TimeSlot } from '@/services/api';
+import {
+  apiErrorMessage,
+  fetchRestaurant,
+  fetchRestaurants,
+  type TimeSlot,
+} from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
 const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8, 10];
@@ -41,9 +46,26 @@ function nextDays(count = 7): { value: string; weekday: string; day: string; mon
  * fits inside the 5-screen budget (NFR02): Reserve → Review → Confirmed.
  */
 export default function ReserveScreen() {
-  const { restaurantId } = useLocalSearchParams<{ restaurantId: string }>();
+  const params = useLocalSearchParams<{
+    restaurantId?: string;
+    tableId?: string;
+    tableNumber?: string;
+    partySize?: string;
+  }>();
 
-  const [partySize, setPartySize] = useState(2);
+  const defaultVenueQuery = useApiQuery(
+    ['default-venue-reserve'],
+    async () => {
+      const all = await fetchRestaurants({ limit: 1 });
+      return all.data?.[0] ?? null;
+    },
+    { enabled: !params.restaurantId },
+  );
+
+  const restaurantId = params.restaurantId || defaultVenueQuery.data?.id || '';
+
+  const initialParty = Number(params.partySize) || 2;
+  const [partySize, setPartySize] = useState(initialParty);
   const [date, setDate] = useState(nextDays()[0].value);
   const [time, setTime] = useState<string | null>(null);
   const [specialRequest, setSpecialRequest] = useState('');
@@ -52,8 +74,8 @@ export default function ReserveScreen() {
   const days = useMemo(() => nextDays(), []);
 
   const restaurantQuery = useApiQuery(
-    ['restaurant', restaurantId],
-    () => fetchRestaurant(restaurantId!, { partySize, date }),
+    ['restaurant', restaurantId, partySize, date],
+    () => fetchRestaurant(restaurantId, { partySize, date }),
     { enabled: Boolean(restaurantId) },
   );
 
@@ -76,6 +98,8 @@ export default function ReserveScreen() {
         date,
         time,
         specialRequest,
+        tableId: params.tableId || '',
+        tableNumber: params.tableNumber || '',
         ...(restaurant ? { restaurantName: restaurant.name } : {}),
       },
     });
@@ -117,6 +141,15 @@ export default function ReserveScreen() {
           />
         ) : (
           <>
+            {params.tableNumber ? (
+              <InfoBox tone="info">
+                <AppText variant="label">Selected: Table {params.tableNumber}</AppText>
+                <AppText variant="secondary">
+                  You are reserving Table {params.tableNumber} ({partySize} guest{partySize > 1 ? 's' : ''}). Select your date and time below.
+                </AppText>
+              </InfoBox>
+            ) : null}
+
             {/* 1 — Party size */}
             <Card>
               <SectionTitle>Who’s coming?</SectionTitle>

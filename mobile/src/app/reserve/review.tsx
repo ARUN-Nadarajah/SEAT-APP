@@ -30,6 +30,8 @@ export default function ReviewScreen() {
     date: string;
     time: string;
     specialRequest?: string;
+    tableId?: string;
+    tableNumber?: string;
   }>();
   const { showToast } = useFeedback();
 
@@ -59,6 +61,7 @@ export default function ReviewScreen() {
         time: params.time,
         partySize,
         specialRequest: params.specialRequest || undefined,
+        tableId: params.tableId || undefined,
       });
 
       router.replace({
@@ -129,7 +132,7 @@ export default function ReviewScreen() {
             <Row
               icon="grid-outline"
               label="Table"
-              value="Assigned when you arrive"
+              value={params.tableNumber ? `Table ${params.tableNumber}` : 'Assigned when you arrive'}
             />
             {params.specialRequest ? (
               <Row icon="chatbubble-ellipses-outline" label="Note" value={params.specialRequest} />

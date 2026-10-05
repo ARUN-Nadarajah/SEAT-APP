@@ -21,6 +21,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
   fetchQueuePreview,
+  fetchRestaurants,
   joinQueue,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
@@ -34,9 +35,20 @@ const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8];
  * plainly that this is a waiting list rather than a fixed-time booking.
  */
 export default function JoinQueueScreen() {
-  const { restaurantId } = useLocalSearchParams<{ restaurantId: string }>();
+  const params = useLocalSearchParams<{ restaurantId?: string }>();
   const { user } = useAuth();
   const { showToast } = useFeedback();
+
+  const defaultVenueQuery = useApiQuery(
+    ['default-venue-queue'],
+    async () => {
+      const all = await fetchRestaurants({ limit: 1 });
+      return all.data?.[0] ?? null;
+    },
+    { enabled: !params.restaurantId },
+  );
+
+  const restaurantId = params.restaurantId || defaultVenueQuery.data?.id || '';
 
   const [partySize, setPartySize] = useState(2);
   const [guestName, setGuestName] = useState(user?.name ?? '');
@@ -46,7 +58,7 @@ export default function JoinQueueScreen() {
 
   const preview = useApiQuery(
     ['queue-preview', restaurantId, partySize],
-    () => fetchQueuePreview(restaurantId!, partySize),
+    () => fetchQueuePreview(restaurantId, partySize),
     { enabled: Boolean(restaurantId), refetchInterval: 20000 },
   );
 

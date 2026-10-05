@@ -13,6 +13,7 @@ export type CreateBookingInput = {
   date: string;
   time: string;
   partySize: number;
+    tableId?: string;
   guestName?: string;
   specialRequest?: string;
 };

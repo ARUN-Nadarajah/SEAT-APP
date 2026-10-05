@@ -208,6 +208,8 @@ export type Table = {
   location: string;
   type?: string;
   status: TableStatus;
+  description?: string;
+  image?: string;
   statusChangedAt?: string;
   isActive: boolean;
 };

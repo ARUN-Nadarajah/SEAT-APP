@@ -1,13 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,72 +14,168 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   AppText,
   Badge,
+  Button,
+  Card,
   Chip,
   EmptyState,
   ErrorState,
   LastUpdated,
-  RestaurantCardSkeleton,
+  Skeleton,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
-import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
   fetchNotifications,
   fetchRestaurants,
-  type RestaurantCard,
+  fetchTables,
+  type Table,
 } from '@/services/api';
+import { onTableUpdated } from '@/services/realtime/socket';
 import { colors, radius, shadow, spacing } from '@/theme';
 
-const FILTERS = [
-  { key: 'all', label: 'All places' },
-  { key: 'sri-lankan', label: 'Sri Lankan' },
-  { key: 'tonight', label: 'Tonight' },
-  { key: 'filters', label: 'Filters' },
-] as const;
+type AvailabilityFilter = 'all' | 'available' | 'reserved';
+type GuestFilter = 'all' | '2' | '4' | '6+';
 
-type FilterKey = (typeof FILTERS)[number]['key'];
+const LOCATION_IMAGES: Record<string, string> = {
+  Courtyard: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
+  Front: 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=800&q=75',
+  'Window Side': 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=800&q=75',
+  Mezzanine: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=800&q=75',
+  Bar: 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=800&q=75',
+  Private: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=800&q=75',
+  Outdoor: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
+  Indoor: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=800&q=75',
+};
+
+const DEFAULT_TABLE_IMAGE = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75';
+
+function getTableImage(table: Table): string {
+  if (table.image) return table.image;
+  if (table.location && LOCATION_IMAGES[table.location]) {
+    return LOCATION_IMAGES[table.location];
+  }
+  return DEFAULT_TABLE_IMAGE;
+}
+
+export function formatTableLabel(raw?: string): string {
+  if (!raw) return 'Table';
+  if (raw.toLowerCase().startsWith('table')) return raw;
+  const num = raw.replace(/^T0*/i, '');
+  if (/^\d+$/.test(num)) {
+    return `Table ${num.padStart(2, '0')}`;
+  }
+  return `Table ${raw}`;
+}
 
 /**
- * Home / Explore (spec §5 + FR01).
+ * Explore Screen — Table Selection (Choose Your Table)
  *
- * Shows greeting, location, search, filter chips and restaurant cards with
- * live availability: "Tonight from 7:00 PM", walk-in wait and free tables.
+ * Focuses primarily on restaurant tables available for reservation.
+ * Displays tables as clear, attractive cards with immediate visibility of
+ * Table Number, Capacity, Location/Type, Availability, and Select Table action.
  */
 export default function ExploreScreen() {
-  const { user } = useAuth();
-  const [search, setSearch] = useState('');
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('all');
+  const [guestFilter, setGuestFilter] = useState<GuestFilter>('all');
+  const [locationFilter, setLocationFilter] = useState<string>('all');
 
-  const restaurants = useApiQuery(
-    ['restaurants', search, activeFilter],
-    () =>
-      fetchRestaurants({
-        q: search.trim() || undefined,
-        cuisine: activeFilter === 'sri-lankan' ? 'Sri Lankan' : undefined,
-        tonight: activeFilter === 'tonight',
-      }),
-    { retry: 0 },
+  // Resolve the restaurant
+  const venueQuery = useApiQuery(
+    ['single-restaurant-venue'],
+    async () => {
+      const all = await fetchRestaurants({ limit: 1 });
+      return all.data?.[0] ?? null;
+    },
+    { retry: 1 },
   );
 
+  const restaurant = venueQuery.data ?? null;
+  const restaurantId = restaurant?.id ?? '';
+
+  // Fetch real tables for this restaurant
+  const tablesQuery = useApiQuery(
+    ['restaurant-tables', restaurantId],
+    () => fetchTables(restaurantId),
+    { enabled: Boolean(restaurantId), retry: 1 },
+  );
+
+  // Notifications badge
   const notifications = useApiQuery(['notifications', 'unread'], () =>
     fetchNotifications(true),
   );
-
   const unreadCount = notifications.data?.unreadCount ?? 0;
-  const cards = restaurants.data?.data ?? [];
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }, []);
+  // Real-time synchronization via Socket.IO
+  const refetchTables = useCallback(() => {
+    tablesQuery.refetch();
+  }, [tablesQuery]);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    const unsub = onTableUpdated(restaurantId, refetchTables);
+    return unsub;
+  }, [restaurantId, refetchTables]);
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([restaurants.refetch(), notifications.refetch()]);
+    await Promise.all([
+      venueQuery.refetch(),
+      tablesQuery.refetch(),
+      notifications.refetch(),
+    ]);
     setRefreshing(false);
+  }
+
+  const allTables = useMemo<Table[]>(() => tablesQuery.data?.data ?? [], [tablesQuery.data?.data]);
+  const availableCount = allTables.filter((t) => t.status === 'available').length;
+  const totalCount = allTables.length;
+
+  // Distinct locations for filter chips
+  const locations = useMemo(() => {
+    const set = new Set<string>();
+    allTables.forEach((t) => {
+      if (t.location) set.add(t.location);
+    });
+    return Array.from(set);
+  }, [allTables]);
+
+  // Filtered tables
+  const filteredTables = useMemo(() => {
+    return allTables.filter((table) => {
+      // Availability filter
+      if (availabilityFilter === 'available' && table.status !== 'available') {
+        return false;
+      }
+      if (availabilityFilter === 'reserved' && table.status === 'available') {
+        return false;
+      }
+
+      // Guest/Capacity filter
+      if (guestFilter === '2' && table.capacity !== 2) return false;
+      if (guestFilter === '4' && table.capacity !== 4) return false;
+      if (guestFilter === '6+' && table.capacity < 6) return false;
+
+      // Location filter
+      if (locationFilter !== 'all' && table.location !== locationFilter) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [allTables, availabilityFilter, guestFilter, locationFilter]);
+
+  function onSelectTable(table: Table) {
+    if (!restaurant) return;
+    router.push({
+      pathname: '/reserve',
+      params: {
+        restaurantId: restaurant.id,
+        tableId: table.id || table._id || '',
+        tableNumber: formatTableLabel(table.tableNumber),
+        partySize: String(table.capacity),
+      },
+    });
   }
 
   return (
@@ -89,20 +184,27 @@ export default function ExploreScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+          />
         }
       >
-        {/* Greeting + location + notification bell */}
-        <View style={styles.topRow}>
-          <View style={styles.greetingBlock}>
-            <AppText variant="caption">{greeting},</AppText>
-            <AppText variant="title" numberOfLines={1}>
-              Where shall we eat today?
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            {restaurant?.name ? (
+              <AppText variant="caption" style={styles.restaurantContext}>
+                {restaurant.name.toUpperCase()} · {restaurant.city || 'JAFFNA'}
+              </AppText>
+            ) : null}
+            <AppText variant="title" style={styles.pageTitle}>
+              Choose Your Table
             </AppText>
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
-              <AppText variant="secondary">Jaffna, Sri Lanka</AppText>
-            </View>
+            <AppText variant="secondary" style={styles.subtitle}>
+              Find a table that’s perfect for your group.
+            </AppText>
           </View>
 
           <Pressable
@@ -126,166 +228,296 @@ export default function ExploreScreen() {
           </Pressable>
         </View>
 
-        {/* Search */}
-        <View style={styles.searchShell}>
-          <Ionicons name="search" size={18} color={colors.textMuted} />
-          <TextInput
-            style={styles.searchInput}
-            value={search}
-            onChangeText={setSearch}
-            placeholder="Search restaurants or cuisine"
-            placeholderTextColor={colors.textMuted}
-            returnKeyType="search"
-            accessibilityLabel="Search restaurants"
-          />
-          {search ? (
-            <Pressable onPress={() => setSearch('')} hitSlop={8} accessibilityLabel="Clear search">
-              <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-            </Pressable>
+        {/* Live Availability Bar */}
+        <View style={styles.liveBar}>
+          <View style={styles.liveDotRow}>
+            <View style={styles.liveDot} />
+            <AppText variant="label" style={styles.liveBarTitle}>
+              Live Availability
+            </AppText>
+          </View>
+          <AppText variant="secondary">
+            {availableCount} of {totalCount} tables free
+          </AppText>
+        </View>
+
+        {/* Compact Filters Area */}
+        <View style={styles.filterSection}>
+          {/* Availability chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <Chip
+              label="All Tables"
+              selected={availabilityFilter === 'all'}
+              onPress={() => setAvailabilityFilter('all')}
+            />
+            <Chip
+              label="Available Only"
+              selected={availabilityFilter === 'available'}
+              onPress={() => setAvailabilityFilter('available')}
+            />
+            <Chip
+              label="Reserved"
+              selected={availabilityFilter === 'reserved'}
+              onPress={() => setAvailabilityFilter('reserved')}
+            />
+          </ScrollView>
+
+          {/* Guests / Capacity chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <Chip
+              label="All Guests"
+              selected={guestFilter === 'all'}
+              onPress={() => setGuestFilter('all')}
+            />
+            <Chip
+              label="2 Guests"
+              selected={guestFilter === '2'}
+              onPress={() => setGuestFilter('2')}
+            />
+            <Chip
+              label="4 Guests"
+              selected={guestFilter === '4'}
+              onPress={() => setGuestFilter('4')}
+            />
+            <Chip
+              label="6+ Guests"
+              selected={guestFilter === '6+'}
+              onPress={() => setGuestFilter('6+')}
+            />
+          </ScrollView>
+
+          {/* Area / Location chips (if multiple locations exist) */}
+          {locations.length > 1 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              <Chip
+                label="All Areas"
+                selected={locationFilter === 'all'}
+                onPress={() => setLocationFilter('all')}
+              />
+              {locations.map((loc) => (
+                <Chip
+                  key={loc}
+                  label={loc}
+                  selected={locationFilter === loc}
+                  onPress={() =>
+                    setLocationFilter((prev) => (prev === loc ? 'all' : loc))
+                  }
+                />
+              ))}
+            </ScrollView>
           ) : null}
         </View>
 
-        {/* Filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-        >
-          {FILTERS.map((filter) => (
-            <Chip
-              key={filter.key}
-              label={filter.label}
-              selected={activeFilter === filter.key}
-              onPress={() =>
-                setActiveFilter((current) =>
-                  current === filter.key && filter.key !== 'all' ? 'all' : filter.key,
-                )
-              }
-            />
-          ))}
-        </ScrollView>
-
-        <LastUpdated
-          timestamp={restaurants.data?.lastUpdated}
-          live
-          label={
-            restaurants.isFetching && !restaurants.isRefetching
-              ? 'Refreshing availability…'
-              : undefined
-          }
-        />
-
-        {/* Results */}
-        {restaurants.isLoading ? (
-          <View style={styles.list}>
-            <RestaurantCardSkeleton />
-            <RestaurantCardSkeleton />
-            <RestaurantCardSkeleton />
+        {/* Table Cards List */}
+        {tablesQuery.isLoading ? (
+          <View style={styles.loadingList}>
+            <TableCardSkeleton />
+            <TableCardSkeleton />
           </View>
-        ) : restaurants.isError ? (
+        ) : tablesQuery.isError ? (
           <ErrorState
-            message={apiErrorMessage(restaurants.error)}
-            onRetry={() => restaurants.refetch()}
+            message={apiErrorMessage(tablesQuery.error)}
+            onRetry={() => tablesQuery.refetch()}
           />
-        ) : cards.length === 0 ? (
+        ) : filteredTables.length === 0 ? (
           <EmptyState
-            title="No places match that"
-            message="Try a different search, or switch the filter back to “All places”."
-            glyph="🔍"
+            title="No matching tables"
+            message="Try adjusting your guest count or availability filters above to see more tables."
+            glyph="🪑"
+            action={
+              <Button
+                label="Show All Tables"
+                variant="secondary"
+                onPress={() => {
+                  setAvailabilityFilter('all');
+                  setGuestFilter('all');
+                  setLocationFilter('all');
+                }}
+              />
+            }
           />
         ) : (
-          <View style={styles.list}>
-            {cards.map((card) => (
-              <RestaurantCardItem key={card.id} card={card} />
+          <View style={styles.tableList}>
+            {filteredTables.map((table) => (
+              <TableCardItem
+                key={table.id || table.tableNumber}
+                table={table}
+                onSelect={() => onSelectTable(table)}
+              />
             ))}
           </View>
         )}
 
-        <AppText variant="caption" style={styles.hint}>
-          {user ? `Signed in as ${user.name} · ` : ''}
-          Availability refreshes every time you pull to refresh.
-        </AppText>
+        <LastUpdated timestamp={tablesQuery.data?.lastUpdated} live />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/** Explore card (FR01) — the whole card is one tap target. */
-function RestaurantCardItem({ card }: { card: RestaurantCard }) {
-  const statusTone =
-    card.availabilityStatus === 'available'
-      ? 'success'
-      : card.availabilityStatus === 'limited'
-        ? 'warning'
-        : 'danger';
+/**
+ * Table Card Component
+ *
+ * Implements the required structure:
+ * ┌─────────────────────────────┐
+ * │        Table Image          │
+ * │                             │
+ * │  Table 04          Available│
+ * │  Seats 4                    │
+ * │  Window Side                │
+ * │                             │
+ * │       [ Select Table ]      │
+ * └─────────────────────────────┘
+ */
+function TableCardItem({
+  table,
+  onSelect,
+}: {
+  table: Table;
+  onSelect: () => void;
+}) {
+  const isAvailable = table.status === 'available';
+  const tableLabel = formatTableLabel(table.tableNumber);
+  const locationLabel = table.location || 'Indoor';
+  const imageUrl = getTableImage(table);
 
-  const statusLabel =
-    card.availabilityStatus === 'fully-booked'
-      ? 'Fully booked'
-      : `${card.availableTables} table${card.availableTables === 1 ? '' : 's'} free`;
+  const statusTone = isAvailable
+    ? 'success'
+    : table.status === 'reserved'
+      ? 'warning'
+      : 'neutral';
+
+  const statusLabel = isAvailable
+    ? 'Available'
+    : table.status === 'reserved'
+      ? 'Reserved'
+      : 'Unavailable';
 
   return (
-    <Pressable
-      style={styles.card}
-      onPress={() => router.push(`/restaurant/${card.id}`)}
-      accessibilityRole="button"
-      accessibilityLabel={`${card.name}, ${card.cuisine}, ${statusLabel}`}
-    >
-      {card.image ? (
-        <Image source={{ uri: card.image }} style={styles.cardImage} />
-      ) : (
-        <View style={[styles.cardImage, styles.cardImageFallback]}>
-          <Ionicons name="restaurant" size={26} color={colors.primary} />
-        </View>
-      )}
-
-      <View style={styles.cardBody}>
-        <View style={styles.cardHeader}>
-          <AppText variant="heading" numberOfLines={1} style={styles.cardTitle}>
-            {card.name}
-          </AppText>
-          <View style={styles.rating}>
-            <Ionicons name="star" size={12} color={colors.warning} />
-            <AppText variant="caption">{card.rating.toFixed(1)}</AppText>
-          </View>
-        </View>
-
-        <AppText variant="secondary" numberOfLines={1}>
-          {card.cuisine} · {formatDistance(card.distanceMeters)} · {card.priceRange}
-        </AppText>
-
-        <View style={styles.metaRow}>
-          <Badge label={card.firstSlotLabel} tone="neutral" />
-          <Badge label={card.walkInWaitLabel} tone="neutral" />
-        </View>
-
-        <View style={styles.cardFooter}>
+    <Card padded={false} style={[styles.card, !isAvailable && styles.cardUnavailable]}>
+      {/* Table Image */}
+      <View style={styles.imageContainer}>
+        <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+        <View style={styles.imageOverlayBadge}>
           <Badge label={statusLabel} tone={statusTone} />
-          <View style={styles.liveRow}>
-            <View style={styles.liveDot} />
-            <AppText variant="caption">Live</AppText>
-          </View>
         </View>
       </View>
-    </Pressable>
+
+      {/* Card Body */}
+      <View style={styles.cardBody}>
+        {/* Table Name & Status */}
+        <View style={styles.cardHeaderRow}>
+          <AppText variant="heading" style={styles.tableTitle}>
+            {tableLabel}
+          </AppText>
+          <Badge label={statusLabel} tone={statusTone} />
+        </View>
+
+        {/* Capacity & Location details */}
+        <View style={styles.detailsBlock}>
+          <View style={styles.detailRow}>
+            <Ionicons name="people-outline" size={17} color={colors.textSecondary} />
+            <AppText variant="bodyMedium" style={styles.detailText}>
+              Seats {table.capacity}
+            </AppText>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Ionicons name="location-outline" size={17} color={colors.textSecondary} />
+            <AppText variant="secondary" style={styles.detailText}>
+              {locationLabel}
+            </AppText>
+          </View>
+        </View>
+
+        {/* Action Button */}
+        <View style={styles.actionContainer}>
+          {isAvailable ? (
+            <Button
+              label="Select Table"
+              onPress={onSelect}
+              accessibilityLabel={`Select ${tableLabel}, Seats ${table.capacity}, ${locationLabel}`}
+            />
+          ) : (
+            <Button
+              label={table.status === 'reserved' ? 'Reserved' : 'Unavailable'}
+              disabled
+              variant="secondary"
+              accessibilityLabel={`${tableLabel} is currently unavailable`}
+            />
+          )}
+        </View>
+      </View>
+    </Card>
   );
 }
 
-export function formatDistance(meters?: number): string {
-  if (!meters && meters !== 0) return '';
-  return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km away` : `${meters} m away`;
+function TableCardSkeleton() {
+  return (
+    <Card padded={false} style={styles.card}>
+      <Skeleton height={150} radius={0} />
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeaderRow}>
+          <Skeleton height={24} width="40%" />
+          <Skeleton height={24} width="25%" radius={radius.pill} />
+        </View>
+        <Skeleton height={18} width="35%" />
+        <Skeleton height={18} width="45%" />
+        <Skeleton height={48} radius={radius.md} style={{ marginTop: spacing.xs }} />
+      </View>
+    </Card>
+  );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, paddingBottom: spacing['4xl'], gap: spacing.lg },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  greetingBlock: { flex: 1, gap: 2 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing['4xl'],
+    gap: spacing.lg,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  headerLeft: {
+    flex: 1,
+    gap: 3,
+  },
+  restaurantContext: {
+    letterSpacing: 1,
+    color: colors.primaryMuted,
+    fontWeight: '700',
+  },
+  pageTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.textPrimary,
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 14,
+  },
   bell: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -304,49 +536,100 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  bellBadgeText: { color: colors.textOnPrimary, fontSize: 10, fontWeight: '700' },
-  searchShell: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    minHeight: 48,
+  bellBadgeText: {
+    color: colors.textOnPrimary,
+    fontSize: 10,
+    fontWeight: '700',
   },
-  searchInput: {
-    flex: 1,
-    minHeight: 44,
-    fontFamily: 'Inter_400Regular',
-    fontSize: 15,
-    color: colors.textPrimary,
-  },
-  chips: { gap: spacing.sm, paddingRight: spacing.lg },
-  list: { gap: spacing.lg },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-    ...shadow.card,
-  },
-  cardImage: { width: '100%', height: 150, backgroundColor: colors.skeleton },
-  cardImageFallback: { alignItems: 'center', justifyContent: 'center' },
-  cardBody: { padding: spacing.lg, gap: spacing.sm },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardTitle: { flex: 1 },
-  rating: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  cardFooter: {
+  liveBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  liveDotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
+  },
+  liveBarTitle: {
+    fontSize: 13,
+    color: colors.textPrimary,
+  },
+  filterSection: {
+    gap: spacing.sm,
+  },
+  filterRow: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  loadingList: {
+    gap: spacing.lg,
+  },
+  tableList: {
+    gap: spacing.xl,
+  },
+  card: {
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.card,
+  },
+  cardUnavailable: {
+    opacity: 0.88,
+  },
+  imageContainer: {
+    width: '100%',
+    height: 155,
+    backgroundColor: colors.skeleton,
+    position: 'relative',
+  },
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageOverlayBadge: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+  },
+  cardBody: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tableTitle: {
+    fontSize: 20,
+    color: colors.textPrimary,
+  },
+  detailsBlock: {
+    gap: 6,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  detailText: {
+    fontSize: 14,
+  },
+  actionContainer: {
     marginTop: spacing.xs,
   },
-  liveRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.success },
-  hint: { textAlign: 'center', color: colors.textMuted, marginTop: spacing.sm },
 });
