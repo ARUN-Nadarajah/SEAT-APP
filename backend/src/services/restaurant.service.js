@@ -122,13 +122,19 @@ function toCard(restaurant, availability) {
 
 /** Detail payload (spec §5 Restaurant Details). */
 function toDetail(restaurant, availability, slots) {
+  const location = restaurant.location &&
+    Number.isFinite(restaurant.location.lat) &&
+    Number.isFinite(restaurant.location.lng)
+    ? restaurant.location
+    : { lat: 9.6615, lng: 80.0249 };
+
   return {
     ...toCard(restaurant, availability),
     description: restaurant.description,
     openingTime: restaurant.openingTime,
     closingTime: restaurant.closingTime,
     phone: restaurant.phone,
-    location: restaurant.location,
+    location,
     averageSeatingMinutes: restaurant.averageSeatingMinutes,
     availability,
     slots,

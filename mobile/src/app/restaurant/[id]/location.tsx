@@ -58,7 +58,12 @@ export default function LocationScreen() {
   }
 
   const restaurant = query.data.data;
-  const { lat, lng } = restaurant.location;
+  const coordinates = restaurant.location &&
+    Number.isFinite(restaurant.location.lat) &&
+    Number.isFinite(restaurant.location.lng)
+    ? restaurant.location
+    : { lat: 9.6615, lng: 80.0249 };
+  const { lat, lng } = coordinates;
   const label = encodeURIComponent(restaurant.name);
   const directionsUrl = Platform.select({
     ios: `http://maps.apple.com/?daddr=${lat},${lng}&q=${label}`,
