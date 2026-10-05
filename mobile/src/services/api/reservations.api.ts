@@ -132,6 +132,13 @@ export async function checkInBooking(id: string, restaurantId: string) {
   return data;
 }
 
+export async function completeBooking(id: string, restaurantId: string) {
+  const { data } = await apiClient.post(`/reservations/${id}/complete`, {
+    restaurantId,
+  });
+  return data;
+}
+
 export async function markNoShow(id: string, restaurantId: string) {
   const { data } = await apiClient.post(`/reservations/${id}/no-show`, {
     restaurantId,

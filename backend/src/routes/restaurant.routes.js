@@ -11,6 +11,7 @@ const {
   updateRestaurant,
   deleteRestaurant,
 } = require("../controllers/restaurant.controller");
+const { getEligibleOffers } = require("../controllers/offer.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
 
@@ -29,6 +30,7 @@ router.get(
 // FR02/FR07 — available time slots, including alternative suggestions.
 router.get("/:id/slots", getAvailableSlots);
 router.get("/:id/menu", getMenu);
+router.get("/:restaurantId/offers", authenticate, getEligibleOffers);
 router.get("/:id", getRestaurantById);
 
 // Manager/Owner venue management.

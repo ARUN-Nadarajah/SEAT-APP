@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import { getApiBaseUrl as getSharedApiBaseUrl } from '@/services/api/config';
 
 type ApiResponse<T> = {
   status?: string;
@@ -7,10 +7,7 @@ type ApiResponse<T> = {
 };
 
 function getApiBaseUrl() {
-  const explicitUrl = process.env.EXPO_PUBLIC_API_URL;
-  const expoUrl = Constants.expoConfig?.extra?.apiUrl;
-
-  return (explicitUrl || expoUrl || 'http://localhost:5000/api').replace(/\/$/, '');
+  return getSharedApiBaseUrl();
 }
 
 async function parseResponse<T>(response: Response): Promise<ApiResponse<T>> {

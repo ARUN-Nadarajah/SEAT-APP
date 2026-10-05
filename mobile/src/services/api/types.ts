@@ -83,6 +83,22 @@ export type RestaurantInfo = {
   updatedAt?: string;
 };
 
+export type Offer = {
+  id: string;
+  restaurantId: string;
+  title: string;
+  description: string;
+  type: 'Percentage' | 'Value';
+  value: string;
+  requiredReservations: number;
+  active: boolean;
+  image: string;
+  startDate: string;
+  endDate: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type MenuItem = {
   name: string;
   description: string;

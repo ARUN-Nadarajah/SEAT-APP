@@ -10,6 +10,7 @@ const {
   getStaffReservations,
   checkIn,
   markNoShow,
+  completeReservation,
   approveCancellation,
   rejectCancellation,
 } = require("../controllers/reservation.controller");
@@ -38,5 +39,6 @@ router.post("/:id/approve-cancellation", requireRole("staff", "manager"), approv
 router.post("/:id/reject-cancellation", requireRole("staff", "manager"), rejectCancellation);
 router.post("/:id/check-in", requireRole("staff", "manager"), checkIn);
 router.post("/:id/no-show", requireRole("staff", "manager"), markNoShow);
+router.post("/:id/complete", requireRole("staff", "manager"), completeReservation);
 
 module.exports = router;

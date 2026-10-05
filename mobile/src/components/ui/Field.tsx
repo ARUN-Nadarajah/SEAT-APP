@@ -31,6 +31,7 @@ export function Field({
   onSubmitEditing,
   maxLength,
   leftAccessory,
+  rightAccessory,
   testID,
 }: {
   label: string;
@@ -48,6 +49,7 @@ export function Field({
   onSubmitEditing?: () => void;
   maxLength?: number;
   leftAccessory?: ReactNode;
+  rightAccessory?: ReactNode;
   testID?: string;
 }) {
   const [hidden, setHidden] = useState(Boolean(secureTextEntry));
@@ -86,6 +88,7 @@ export function Field({
           accessibilityHint={error || hint}
           testID={testID}
         />
+        {rightAccessory}
         {secureTextEntry ? (
           <Pressable
             onPress={() => setHidden((current) => !current)}

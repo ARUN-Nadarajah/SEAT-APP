@@ -266,6 +266,24 @@ export default function ManagerDashboardScreen() {
 
             <Pressable
               style={styles.footerLink}
+              onPress={() => router.push('/(manager)/offers')}
+              accessibilityRole="button"
+              accessibilityLabel="Offers and promotions"
+            >
+              <View style={styles.managementIcon}>
+                <Ionicons name="pricetag-outline" size={20} color={colors.primary} />
+              </View>
+              <View style={styles.footerLinkBody}>
+                <AppText variant="label">Offers & Promotions</AppText>
+                <AppText variant="caption">Manage customer offers and discounts</AppText>
+              </View>
+              <View style={styles.chevronCircle}>
+                <Ionicons name="chevron-forward" size={17} color={colors.textOnPrimary} />
+              </View>
+            </Pressable>
+
+            <Pressable
+              style={styles.footerLink}
               onPress={() => router.push('/(staff)')}
               accessibilityRole="button"
             >

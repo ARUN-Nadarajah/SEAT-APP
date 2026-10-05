@@ -16,7 +16,7 @@ export function getApiBaseUrl(): string {
   const explicit = process.env.EXPO_PUBLIC_API_URL;
   const extra = Constants.expoConfig?.extra?.apiUrl;
 
-  return stripTrailingSlash(explicit || extra || 'http://localhost:5000/api');
+  return stripTrailingSlash(explicit || extra || 'http://localhost:5001/api');
 }
 
 export function getSocketUrl(): string {

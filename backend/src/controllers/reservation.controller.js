@@ -102,6 +102,16 @@ const markNoShow = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+/** POST /api/reservations/:id/complete — staff completes a checked-in booking. */
+const completeReservation = asyncHandler(async (req, res) => {
+  const id = assertObjectId(req.params.id, "reservationId");
+  const restaurantId = req.user.restaurantId
+    ? String(req.user.restaurantId)
+    : req.body?.restaurantId;
+  const result = await reservationService.completeReservation(id, restaurantId);
+  success(res, result);
+});
+
 /** POST /api/reservations/:id/approve-cancellation — staff approves cancellation (Sobiyan). */
 const approveCancellation = asyncHandler(async (req, res) => {
   const id = assertObjectId(req.params.id, "reservationId");
@@ -128,5 +138,6 @@ module.exports = {
   rejectCancellation,
   getStaffReservations,
   checkIn,
+  completeReservation,
   markNoShow,
 };

@@ -22,6 +22,7 @@ const notificationSchema = new mongoose.Schema(
         "queue",
         "table-ready",
         "queue-update",
+        "offer",
         "order",
         "account",
         "general",

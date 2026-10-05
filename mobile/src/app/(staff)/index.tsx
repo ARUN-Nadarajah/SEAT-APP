@@ -32,6 +32,7 @@ import {
   approveCancellation,
   callNextParty,
   checkInBooking,
+  completeBooking,
   createTable,
   fetchKitchenOrders,
   fetchRestaurants,
@@ -343,6 +344,17 @@ export default function StaffDashboardScreen() {
       await checkInBooking(bookingId, restaurantId);
       reservations.refetch();
       showToast('Guest checked in.', 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+
+  }
+
+  async function onComplete(bookingId: string) {
+    try {
+      await completeBooking(bookingId, restaurantId);
+      reservations.refetch();
+      showToast('Reservation completed. Offer eligibility updated.', 'success');
     } catch (error) {
       showToast(apiErrorMessage(error), 'error');
     }
@@ -874,6 +886,13 @@ export default function StaffDashboardScreen() {
                         label="Check in"
                         onPress={() => onCheckIn(booking.id)}
                         accessibilityLabel={`Check in ${booking.bookingId}`}
+                      />
+                    ) : null}
+                    {booking.status === 'checked-in' ? (
+                      <Button
+                        label="Complete reservation"
+                        onPress={() => onComplete(booking.id)}
+                        accessibilityLabel={`Complete ${booking.bookingId}`}
                       />
                     ) : null}
                   </Card>

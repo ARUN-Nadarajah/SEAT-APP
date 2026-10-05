@@ -42,7 +42,6 @@ const connectDB = async () => {
     console.warn(
       "Continuing without a database connection for this scaffolded backend.",
     );
-    return null;
   }
 };
 

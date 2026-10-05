@@ -25,8 +25,20 @@ export async function getSession(): Promise<Session | null> {
   const raw = await AsyncStorage.getItem(SESSION_KEY);
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Session;
+    const parsed = JSON.parse(raw) as Partial<Session> & { accessToken?: string };
+    const token = parsed.token || parsed.accessToken;
+    if (!token || !parsed.user) {
+      await AsyncStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+
+    return {
+      token,
+      refreshToken: parsed.refreshToken,
+      user: parsed.user,
+    };
   } catch {
+    await AsyncStorage.removeItem(SESSION_KEY);
     return null;
   }
 }
@@ -117,8 +129,16 @@ apiClient.interceptors.response.use(
 /** Extract the `message` from any API error for inline/toast feedback. */
 export function apiErrorMessage(error: unknown): string {
   if (isAxiosError(error)) {
-    const data = error.response?.data as { message?: string } | undefined;
+    const data = error.response?.data as
+      | { message?: string; details?: Record<string, string> }
+      | undefined;
     if (data?.message) return data.message;
+    if (data?.details) {
+      return Object.values(data.details).join(' ');
+    }
+    if (error.response?.status === 401) {
+      return 'Your session has expired. Please sign in again.';
+    }
     if (error.code === 'ECONNABORTED' || !error.response) {
       return 'Network unreachable. Check your connection and try again.';
     }

@@ -27,6 +27,7 @@ const TYPE_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   queue: 'people-outline',
   'table-ready': 'restaurant',
   'queue-update': 'sync-outline',
+  offer: 'pricetag-outline',
   account: 'person-outline',
   general: 'notifications-outline',
 };

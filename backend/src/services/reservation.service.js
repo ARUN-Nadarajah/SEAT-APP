@@ -7,6 +7,7 @@ const User = require("../models/User");
 
 const { AppError } = require("../utils/errors");
 const { notify, notifyRestaurantStaff } = require("./notification.service");
+const { notifyEligibleOffers } = require("./offer.service");
 const {
   normalizeDate,
   today,
@@ -19,6 +20,7 @@ const {
   blockingReservations,
   seatingDuration,
 } = require("../utils/availability");
+const { completeReservation } = require("../controllers/reservation.controller");
 
 /** Booking reference shown on "Reservation Confirmed" (spec §5). */
 async function generateBookingId() {
@@ -797,6 +799,36 @@ async function markNoShow(id, restaurantId) {
   if (!reservation) {
     throw new AppError("Reservation not found.", 404, "not_found");
   }
+
+  /** FR09 — staff marks a checked-in reservation as completed. */
+  async function completeReservation(id, restaurantId) {
+    const reservation = await Reservation.findById(id);
+    if (!reservation) {
+      throw new AppError("Reservation not found.", 404, "not_found");
+    }
+    if (restaurantId && String(reservation.restaurantId) !== String(restaurantId)) {
+      throw new AppError("Reservation belongs to another restaurant.", 403, "forbidden");
+    }
+    if (reservation.status !== "checked-in") {
+      throw new AppError("Only checked-in bookings can be completed.", 409, "invalid_status");
+    }
+
+    reservation.status = "completed";
+    reservation.completedAt = new Date();
+    await reservation.save();
+
+    await Table.findByIdAndUpdate(reservation.tableId, {
+      status: "available",
+      statusChangedAt: new Date(),
+    });
+
+    await notifyEligibleOffers(reservation.userId, reservation.restaurantId);
+
+    return {
+      message: "Reservation completed.",
+      data: { reservation: { id: reservation._id, bookingId: reservation.bookingId, status: reservation.status } },
+    };
+  }
   if (restaurantId && String(reservation.restaurantId) !== String(restaurantId)) {
     throw new AppError("Reservation belongs to another restaurant.", 403, "forbidden");
   }
@@ -824,6 +856,7 @@ module.exports = {
   cancelReservation,
   approveCancellation,
   rejectCancellation,
+  completeReservation,
   listForStaff,
   checkIn,
   markNoShow,
