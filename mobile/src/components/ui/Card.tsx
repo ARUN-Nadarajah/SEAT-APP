@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Pressable, type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native';
 
 import { AppText } from './Text';
 import { colors, radius, shadow, spacing } from '@/theme';
@@ -10,7 +10,7 @@ export function Card({
   padded = true,
 }: {
   children: React.ReactNode;
-  style?: ViewStyle | ViewStyle[];
+  style?: StyleProp<ViewStyle>;
   padded?: boolean;
 }) {
   return (

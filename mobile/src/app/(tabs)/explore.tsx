@@ -19,49 +19,73 @@ import {
   Chip,
   EmptyState,
   ErrorState,
-  InfoBox,
   LastUpdated,
   Skeleton,
 } from '@/components/ui';
-import { useAuth } from '@/features/auth/auth-context';
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
   fetchNotifications,
-  fetchRestaurant,
   fetchRestaurants,
   fetchTables,
   type Table,
-  type TableStatus,
 } from '@/services/api';
-import { onQueueUpdated, onTableUpdated } from '@/services/realtime/socket';
+import { onTableUpdated } from '@/services/realtime/socket';
 import { colors, radius, shadow, spacing } from '@/theme';
 
-type TableStatusFilter = 'all' | TableStatus;
+type AvailabilityFilter = 'all' | 'available' | 'reserved';
+type GuestFilter = 'all' | '2' | '4' | '6+';
+
+const LOCATION_IMAGES: Record<string, string> = {
+  Courtyard: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
+  Front: 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=800&q=75',
+  'Window Side': 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=800&q=75',
+  Mezzanine: 'https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=800&q=75',
+  Bar: 'https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=800&q=75',
+  Private: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?auto=format&fit=crop&w=800&q=75',
+  Outdoor: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
+  Indoor: 'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=800&q=75',
+};
+
+const DEFAULT_TABLE_IMAGE = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75';
+
+function getTableImage(table: Table): string {
+  if (table.image) return table.image;
+  if (table.location && LOCATION_IMAGES[table.location]) {
+    return LOCATION_IMAGES[table.location];
+  }
+  return DEFAULT_TABLE_IMAGE;
+}
+
+export function formatTableLabel(raw?: string): string {
+  if (!raw) return 'Table';
+  if (raw.toLowerCase().startsWith('table')) return raw;
+  const num = raw.replace(/^T0*/i, '');
+  if (/^\d+$/.test(num)) {
+    return `Table ${num.padStart(2, '0')}`;
+  }
+  return `Table ${raw}`;
+}
 
 /**
- * Single-Restaurant Home & Available Tables screen (FR01, FR03, FR08).
+ * Explore Screen — Table Selection (Choose Your Table)
  *
- * For a single-restaurant model, this screen presents the restaurant's
- * identity, live status, menu/arrival shortcuts, reservation & queue actions,
- * and an interactive real-time grid of all available tables.
+ * Focuses primarily on restaurant tables available for reservation.
+ * Displays tables as clear, attractive cards with immediate visibility of
+ * Table Number, Capacity, Location/Type, Availability, and Select Table action.
  */
 export default function ExploreScreen() {
-  const { user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<TableStatusFilter>('all');
+  const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('all');
+  const [guestFilter, setGuestFilter] = useState<GuestFilter>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
-  const [showQueueHelp, setShowQueueHelp] = useState(false);
 
-  // 1. Resolve the single restaurant
+  // Resolve the restaurant
   const venueQuery = useApiQuery(
-    ['single-restaurant'],
+    ['single-restaurant-venue'],
     async () => {
       const all = await fetchRestaurants({ limit: 1 });
-      const first = all.data?.[0];
-      if (!first?.id) return null;
-      const detail = await fetchRestaurant(first.id, { partySize: 2 });
-      return detail.data;
+      return all.data?.[0] ?? null;
     },
     { retry: 1 },
   );
@@ -69,37 +93,29 @@ export default function ExploreScreen() {
   const restaurant = venueQuery.data ?? null;
   const restaurantId = restaurant?.id ?? '';
 
-  // 2. Fetch live tables for this restaurant
+  // Fetch real tables for this restaurant
   const tablesQuery = useApiQuery(
     ['restaurant-tables', restaurantId],
     () => fetchTables(restaurantId),
     { enabled: Boolean(restaurantId), retry: 1 },
   );
 
-  // 3. Notifications unread badge
+  // Notifications badge
   const notifications = useApiQuery(['notifications', 'unread'], () =>
     fetchNotifications(true),
   );
-
   const unreadCount = notifications.data?.unreadCount ?? 0;
 
   // Real-time synchronization via Socket.IO
-  const refreshAll = useCallback(() => {
+  const refetchTables = useCallback(() => {
     tablesQuery.refetch();
-    venueQuery.refetch();
-  }, [tablesQuery, venueQuery]);
+  }, [tablesQuery]);
 
   useEffect(() => {
     if (!restaurantId) return;
-
-    const unsubTables = onTableUpdated(restaurantId, refreshAll);
-    const unsubQueue = onQueueUpdated(restaurantId, () => venueQuery.refetch());
-
-    return () => {
-      unsubTables();
-      unsubQueue();
-    };
-  }, [restaurantId, refreshAll, venueQuery]);
+    const unsub = onTableUpdated(restaurantId, refetchTables);
+    return unsub;
+  }, [restaurantId, refetchTables]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -111,21 +127,9 @@ export default function ExploreScreen() {
     setRefreshing(false);
   }
 
-  const greeting = useMemo(() => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  }, []);
-
-  const allTables: Table[] = tablesQuery.data?.data ?? [];
-  const tableSummary = tablesQuery.data?.summary ?? {
-    total: allTables.length,
-    available: allTables.filter((t) => t.status === 'available').length,
-    occupied: allTables.filter((t) => t.status === 'occupied').length,
-    reserved: allTables.filter((t) => t.status === 'reserved').length,
-    maintenance: allTables.filter((t) => t.status === 'maintenance').length,
-  };
+  const allTables = useMemo<Table[]>(() => tablesQuery.data?.data ?? [], [tablesQuery.data?.data]);
+  const availableCount = allTables.filter((t) => t.status === 'available').length;
+  const totalCount = allTables.length;
 
   // Distinct locations for filter chips
   const locations = useMemo(() => {
@@ -138,36 +142,39 @@ export default function ExploreScreen() {
 
   // Filtered tables
   const filteredTables = useMemo(() => {
-    return allTables.filter((t) => {
-      if (statusFilter !== 'all' && t.status !== statusFilter) return false;
-      if (locationFilter !== 'all' && t.location !== locationFilter) return false;
+    return allTables.filter((table) => {
+      // Availability filter
+      if (availabilityFilter === 'available' && table.status !== 'available') {
+        return false;
+      }
+      if (availabilityFilter === 'reserved' && table.status === 'available') {
+        return false;
+      }
+
+      // Guest/Capacity filter
+      if (guestFilter === '2' && table.capacity !== 2) return false;
+      if (guestFilter === '4' && table.capacity !== 4) return false;
+      if (guestFilter === '6+' && table.capacity < 6) return false;
+
+      // Location filter
+      if (locationFilter !== 'all' && table.location !== locationFilter) {
+        return false;
+      }
+
       return true;
     });
-  }, [allTables, statusFilter, locationFilter]);
+  }, [allTables, availabilityFilter, guestFilter, locationFilter]);
 
-  const availability = restaurant?.availability;
-  const waitLabel = availability?.walkInWait?.label ?? restaurant?.walkInWaitLabel ?? '15–20 min';
-  const queueLength = availability?.queueLength ?? restaurant?.queueLength ?? 0;
-  const isFullyBooked = availability?.status === 'fully-booked' || availability?.isFullyBooked;
-
-  function onReserveTable(table?: Table) {
+  function onSelectTable(table: Table) {
     if (!restaurant) return;
     router.push({
       pathname: '/reserve',
       params: {
         restaurantId: restaurant.id,
-        tableId: table?.id ?? '',
-        tableNumber: table?.tableNumber ?? '',
-        partySize: table ? String(table.capacity) : '2',
+        tableId: table.id || table._id || '',
+        tableNumber: formatTableLabel(table.tableNumber),
+        partySize: String(table.capacity),
       },
-    });
-  }
-
-  function onJoinQueue() {
-    if (!restaurant) return;
-    router.push({
-      pathname: '/queue/join',
-      params: { restaurantId: restaurant.id },
     });
   }
 
@@ -184,22 +191,20 @@ export default function ExploreScreen() {
           />
         }
       >
-        {/* Top greeting & notification bar */}
-        <View style={styles.topRow}>
-          <View style={styles.greetingBlock}>
-            <AppText variant="caption">
-              {greeting}
-              {user?.name ? `, ${user.name.split(' ')[0]}` : ''}
-            </AppText>
-            <AppText variant="title" numberOfLines={1}>
-              {restaurant?.name ?? 'Welcome to SEAT'}
-            </AppText>
-            <View style={styles.locationRow}>
-              <Ionicons name="location-outline" size={13} color={colors.textSecondary} />
-              <AppText variant="secondary">
-                {restaurant?.address ? `${restaurant.address}, ${restaurant.city}` : 'Jaffna, Sri Lanka'}
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            {restaurant?.name ? (
+              <AppText variant="caption" style={styles.restaurantContext}>
+                {restaurant.name.toUpperCase()} · {restaurant.city || 'JAFFNA'}
               </AppText>
-            </View>
+            ) : null}
+            <AppText variant="title" style={styles.pageTitle}>
+              Choose Your Table
+            </AppText>
+            <AppText variant="secondary" style={styles.subtitle}>
+              Find a table that’s perfect for your group.
+            </AppText>
           </View>
 
           <Pressable
@@ -223,438 +228,292 @@ export default function ExploreScreen() {
           </Pressable>
         </View>
 
-        {venueQuery.isLoading ? (
-          <View style={styles.loadingContainer}>
-            <Skeleton height={200} radius={radius.lg} />
-            <Skeleton height={28} width="60%" />
-            <Skeleton height={18} width="40%" />
-            <Skeleton height={100} radius={radius.lg} />
-            <Skeleton height={200} radius={radius.lg} />
+        {/* Live Availability Bar */}
+        <View style={styles.liveBar}>
+          <View style={styles.liveDotRow}>
+            <View style={styles.liveDot} />
+            <AppText variant="label" style={styles.liveBarTitle}>
+              Live Availability
+            </AppText>
           </View>
-        ) : venueQuery.isError || !restaurant ? (
+          <AppText variant="secondary">
+            {availableCount} of {totalCount} tables free
+          </AppText>
+        </View>
+
+        {/* Compact Filters Area */}
+        <View style={styles.filterSection}>
+          {/* Availability chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <Chip
+              label="All Tables"
+              selected={availabilityFilter === 'all'}
+              onPress={() => setAvailabilityFilter('all')}
+            />
+            <Chip
+              label="Available Only"
+              selected={availabilityFilter === 'available'}
+              onPress={() => setAvailabilityFilter('available')}
+            />
+            <Chip
+              label="Reserved"
+              selected={availabilityFilter === 'reserved'}
+              onPress={() => setAvailabilityFilter('reserved')}
+            />
+          </ScrollView>
+
+          {/* Guests / Capacity chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterRow}
+          >
+            <Chip
+              label="All Guests"
+              selected={guestFilter === 'all'}
+              onPress={() => setGuestFilter('all')}
+            />
+            <Chip
+              label="2 Guests"
+              selected={guestFilter === '2'}
+              onPress={() => setGuestFilter('2')}
+            />
+            <Chip
+              label="4 Guests"
+              selected={guestFilter === '4'}
+              onPress={() => setGuestFilter('4')}
+            />
+            <Chip
+              label="6+ Guests"
+              selected={guestFilter === '6+'}
+              onPress={() => setGuestFilter('6+')}
+            />
+          </ScrollView>
+
+          {/* Area / Location chips (if multiple locations exist) */}
+          {locations.length > 1 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              <Chip
+                label="All Areas"
+                selected={locationFilter === 'all'}
+                onPress={() => setLocationFilter('all')}
+              />
+              {locations.map((loc) => (
+                <Chip
+                  key={loc}
+                  label={loc}
+                  selected={locationFilter === loc}
+                  onPress={() =>
+                    setLocationFilter((prev) => (prev === loc ? 'all' : loc))
+                  }
+                />
+              ))}
+            </ScrollView>
+          ) : null}
+        </View>
+
+        {/* Table Cards List */}
+        {tablesQuery.isLoading ? (
+          <View style={styles.loadingList}>
+            <TableCardSkeleton />
+            <TableCardSkeleton />
+          </View>
+        ) : tablesQuery.isError ? (
           <ErrorState
-            message={apiErrorMessage(venueQuery.error) || 'Failed to load restaurant details.'}
-            onRetry={onRefresh}
+            message={apiErrorMessage(tablesQuery.error)}
+            onRetry={() => tablesQuery.refetch()}
+          />
+        ) : filteredTables.length === 0 ? (
+          <EmptyState
+            title="No matching tables"
+            message="Try adjusting your guest count or availability filters above to see more tables."
+            glyph="🪑"
+            action={
+              <Button
+                label="Show All Tables"
+                variant="secondary"
+                onPress={() => {
+                  setAvailabilityFilter('all');
+                  setGuestFilter('all');
+                  setLocationFilter('all');
+                }}
+              />
+            }
           />
         ) : (
-          <>
-            {/* Restaurant Hero Card */}
-            <Card style={styles.heroCard}>
-              {restaurant.image ? (
-                <Image source={{ uri: restaurant.image }} style={styles.heroImage} />
-              ) : (
-                <View style={[styles.heroImage, styles.heroFallback]}>
-                  <Ionicons name="restaurant" size={38} color={colors.primary} />
-                </View>
-              )}
-
-              <View style={styles.heroBody}>
-                <View style={styles.heroTitleRow}>
-                  <View style={styles.heroTitleBlock}>
-                    <AppText variant="heading" style={styles.restaurantName}>
-                      {restaurant.name}
-                    </AppText>
-                    <AppText variant="secondary">
-                      {restaurant.cuisine} · {restaurant.priceRange}
-                    </AppText>
-                  </View>
-                  <View style={styles.ratingBox}>
-                    <Ionicons name="star" size={14} color={colors.warning} />
-                    <AppText variant="label">{restaurant.rating.toFixed(1)}</AppText>
-                    <AppText variant="caption">({restaurant.reviewCount})</AppText>
-                  </View>
-                </View>
-
-                {restaurant.description ? (
-                  <AppText variant="body" numberOfLines={3} style={styles.description}>
-                    {restaurant.description}
-                  </AppText>
-                ) : null}
-
-                {/* Feature Chips */}
-                <View style={styles.chipRow}>
-                  <Badge label={restaurant.openHoursLabel || 'Open daily'} tone="neutral" />
-                  <Badge
-                    label={restaurant.parkingLabel || 'Parking available'}
-                    tone={restaurant.parking ? 'success' : 'neutral'}
-                  />
-                  <Badge
-                    label={`${tableSummary.available} tables available`}
-                    tone={tableSummary.available > 0 ? 'success' : 'danger'}
-                  />
-                </View>
-
-                {/* Supporting Links: Menu & Location */}
-                <View style={styles.linksRow}>
-                  <Pressable
-                    style={styles.linkButton}
-                    onPress={() => router.push(`/restaurant/${restaurant.id}/menu`)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Explore the menu"
-                  >
-                    <Ionicons name="book-outline" size={17} color={colors.primary} />
-                    <AppText variant="label" style={styles.linkLabel}>
-                      Explore Menu
-                    </AppText>
-                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-                  </Pressable>
-
-                  <Pressable
-                    style={styles.linkButton}
-                    onPress={() => router.push(`/restaurant/${restaurant.id}/location`)}
-                    accessibilityRole="button"
-                    accessibilityLabel="Directions and arrival"
-                  >
-                    <Ionicons name="map-outline" size={17} color={colors.primary} />
-                    <AppText variant="label" style={styles.linkLabel}>
-                      Directions
-                    </AppText>
-                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-                  </Pressable>
-                </View>
-              </View>
-            </Card>
-
-            {/* Live Availability Highlights */}
-            <View style={styles.infoRow}>
-              <Card style={styles.infoCard}>
-                <View style={styles.infoCardHeader}>
-                  <Ionicons name="calendar-outline" size={18} color={colors.primary} />
-                  <AppText variant="label">Book Ahead</AppText>
-                </View>
-                <AppText variant="heading" numberOfLines={1}>
-                  {availability?.firstSlot
-                    ? `From ${availability.firstSlot.label}`
-                    : restaurant.firstSlotLabel || 'Available'}
-                </AppText>
-                <AppText variant="caption">
-                  {availability?.availableSlots ?? 0} time slots available today
-                </AppText>
-              </Card>
-
-              <Card style={styles.infoCard}>
-                <View style={styles.infoCardHeader}>
-                  <Ionicons name="hourglass-outline" size={18} color={colors.warning} />
-                  <AppText variant="label">Walk-in Wait</AppText>
-                </View>
-                <AppText variant="heading" numberOfLines={1}>
-                  {waitLabel}
-                </AppText>
-                <AppText variant="caption">
-                  {queueLength} {queueLength === 1 ? 'party' : 'parties'} waiting right now
-                </AppText>
-              </Card>
-            </View>
-
-            {/* Quick Actions */}
-            <View style={styles.primaryActionBox}>
-              <Button
-                label="Reserve a table"
-                onPress={() => onReserveTable()}
-                accessibilityLabel="Reserve a table"
+          <View style={styles.tableList}>
+            {filteredTables.map((table) => (
+              <TableCardItem
+                key={table.id || table.tableNumber}
+                table={table}
+                onSelect={() => onSelectTable(table)}
               />
-
-              <Pressable
-                onPress={onJoinQueue}
-                style={styles.queueButton}
-                accessibilityRole="button"
-                accessibilityLabel={`Join the queue, ${waitLabel} estimated wait`}
-              >
-                <View style={styles.queueButtonInner}>
-                  <Ionicons name="people-outline" size={20} color={colors.primary} />
-                  <View style={styles.queueButtonText}>
-                    <AppText variant="label" style={styles.queueButtonTitle}>
-                      Join Virtual Queue · {waitLabel}
-                    </AppText>
-                    <AppText variant="caption">
-                      {isFullyBooked
-                        ? 'All tables currently taken — wait comfortably from home'
-                        : `${queueLength} parties waiting in line`}
-                    </AppText>
-                  </View>
-                  <Ionicons name="arrow-forward" size={18} color={colors.primary} />
-                </View>
-              </Pressable>
-
-              <Pressable
-                onPress={() => setShowQueueHelp((v) => !v)}
-                accessibilityRole="button"
-                accessibilityLabel="What is a virtual queue?"
-                style={styles.helpToggle}
-              >
-                <Ionicons
-                  name={showQueueHelp ? 'chevron-up' : 'help-circle-outline'}
-                  size={16}
-                  color={colors.primary}
-                />
-                <AppText variant="label" style={styles.helpLabel}>
-                  How does the virtual queue work?
-                </AppText>
-              </Pressable>
-
-              {showQueueHelp ? (
-                <InfoBox tone="info">
-                  <AppText variant="secondary">
-                    Join the queue remotely and keep your place in line while waiting
-                    from anywhere. We will track your position in real-time and alert
-                    you as soon as your table is ready.
-                  </AppText>
-                </InfoBox>
-              ) : null}
-            </View>
-
-            {/* AVAILABLE TABLES SECTION */}
-            <View style={styles.tablesSection}>
-              <View style={styles.sectionHeaderRow}>
-                <View style={styles.sectionHeaderLeft}>
-                  <View style={styles.titleWithLive}>
-                    <AppText variant="heading">Available Tables</AppText>
-                    <View style={styles.liveBadge}>
-                      <View style={styles.liveDot} />
-                      <AppText variant="caption" style={styles.liveText}>
-                        Live
-                      </AppText>
-                    </View>
-                  </View>
-                  <AppText variant="secondary">
-                    Real-time floor status · Tap an available table to book it
-                  </AppText>
-                </View>
-
-                <LastUpdated
-                  timestamp={tablesQuery.data?.lastUpdated || restaurant.lastUpdated}
-                  live
-                />
-              </View>
-
-              {/* Status summary counters */}
-              <View style={styles.statPillsRow}>
-                <StatPill
-                  label="All"
-                  count={tableSummary.total}
-                  active={statusFilter === 'all'}
-                  onPress={() => setStatusFilter('all')}
-                />
-                <StatPill
-                  label="Available"
-                  count={tableSummary.available}
-                  tone="success"
-                  active={statusFilter === 'available'}
-                  onPress={() => setStatusFilter('available')}
-                />
-                <StatPill
-                  label="Occupied"
-                  count={tableSummary.occupied}
-                  tone="neutral"
-                  active={statusFilter === 'occupied'}
-                  onPress={() => setStatusFilter('occupied')}
-                />
-                <StatPill
-                  label="Reserved"
-                  count={tableSummary.reserved}
-                  tone="warning"
-                  active={statusFilter === 'reserved'}
-                  onPress={() => setStatusFilter('reserved')}
-                />
-              </View>
-
-              {/* Location filters (if multiple locations/sections exist) */}
-              {locations.length > 1 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.locationChips}
-                >
-                  <Chip
-                    label="All areas"
-                    selected={locationFilter === 'all'}
-                    onPress={() => setLocationFilter('all')}
-                  />
-                  {locations.map((loc) => (
-                    <Chip
-                      key={loc}
-                      label={loc}
-                      selected={locationFilter === loc}
-                      onPress={() =>
-                        setLocationFilter((prev) => (prev === loc ? 'all' : loc))
-                      }
-                    />
-                  ))}
-                </ScrollView>
-              ) : null}
-
-              {/* Tables Grid */}
-              {tablesQuery.isLoading ? (
-                <View style={styles.tableGrid}>
-                  <Skeleton height={110} style={styles.tableGridItem} radius={radius.lg} />
-                  <Skeleton height={110} style={styles.tableGridItem} radius={radius.lg} />
-                  <Skeleton height={110} style={styles.tableGridItem} radius={radius.lg} />
-                  <Skeleton height={110} style={styles.tableGridItem} radius={radius.lg} />
-                </View>
-              ) : tablesQuery.isError ? (
-                <ErrorState
-                  message={apiErrorMessage(tablesQuery.error)}
-                  onRetry={() => tablesQuery.refetch()}
-                />
-              ) : filteredTables.length === 0 ? (
-                <EmptyState
-                  title="No tables found"
-                  message="No tables currently match this filter. Try selecting 'All' to see all tables."
-                  glyph="🪑"
-                />
-              ) : (
-                <View style={styles.tableGrid}>
-                  {filteredTables.map((table) => (
-                    <TableGridCard
-                      key={table.id || table.tableNumber}
-                      table={table}
-                      onPress={() => onReserveTable(table)}
-                    />
-                  ))}
-                </View>
-              )}
-            </View>
-          </>
+            ))}
+          </View>
         )}
+
+        <LastUpdated timestamp={tablesQuery.data?.lastUpdated} live />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-/** Stat Pill button with counter */
-function StatPill({
-  label,
-  count,
-  tone,
-  active,
-  onPress,
+/**
+ * Table Card Component
+ *
+ * Implements the required structure:
+ * ┌─────────────────────────────┐
+ * │        Table Image          │
+ * │                             │
+ * │  Table 04          Available│
+ * │  Seats 4                    │
+ * │  Window Side                │
+ * │                             │
+ * │       [ Select Table ]      │
+ * └─────────────────────────────┘
+ */
+function TableCardItem({
+  table,
+  onSelect,
 }: {
-  label: string;
-  count: number;
-  tone?: 'success' | 'neutral' | 'warning' | 'danger';
-  active: boolean;
-  onPress: () => void;
+  table: Table;
+  onSelect: () => void;
 }) {
-  const dotColor =
-    tone === 'success'
-      ? colors.success
-      : tone === 'warning'
-        ? colors.warning
-        : tone === 'danger'
-          ? colors.danger
-          : colors.textSecondary;
+  const isAvailable = table.status === 'available';
+  const tableLabel = formatTableLabel(table.tableNumber);
+  const locationLabel = table.location || 'Indoor';
+  const imageUrl = getTableImage(table);
+
+  const statusTone = isAvailable
+    ? 'success'
+    : table.status === 'reserved'
+      ? 'warning'
+      : 'neutral';
+
+  const statusLabel = isAvailable
+    ? 'Available'
+    : table.status === 'reserved'
+      ? 'Reserved'
+      : 'Unavailable';
 
   return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.statPill, active && styles.statPillActive]}
-      accessibilityRole="button"
-      accessibilityLabel={`${label}: ${count}`}
-    >
-      <View style={[styles.statPillDot, { backgroundColor: dotColor }]} />
-      <AppText
-        variant="label"
-        style={[styles.statPillText, active && styles.statPillTextActive]}
-      >
-        {label}
-      </AppText>
-      <View style={[styles.statPillCount, active && styles.statPillCountActive]}>
-        <AppText
-          style={[styles.statPillCountText, active && styles.statPillCountTextActive]}
-        >
-          {count}
-        </AppText>
+    <Card padded={false} style={[styles.card, !isAvailable && styles.cardUnavailable]}>
+      {/* Table Image */}
+      <View style={styles.imageContainer}>
+        <Image source={{ uri: imageUrl }} style={styles.cardImage} />
+        <View style={styles.imageOverlayBadge}>
+          <Badge label={statusLabel} tone={statusTone} />
+        </View>
       </View>
-    </Pressable>
+
+      {/* Card Body */}
+      <View style={styles.cardBody}>
+        {/* Table Name & Status */}
+        <View style={styles.cardHeaderRow}>
+          <AppText variant="heading" style={styles.tableTitle}>
+            {tableLabel}
+          </AppText>
+          <Badge label={statusLabel} tone={statusTone} />
+        </View>
+
+        {/* Capacity & Location details */}
+        <View style={styles.detailsBlock}>
+          <View style={styles.detailRow}>
+            <Ionicons name="people-outline" size={17} color={colors.textSecondary} />
+            <AppText variant="bodyMedium" style={styles.detailText}>
+              Seats {table.capacity}
+            </AppText>
+          </View>
+
+          <View style={styles.detailRow}>
+            <Ionicons name="location-outline" size={17} color={colors.textSecondary} />
+            <AppText variant="secondary" style={styles.detailText}>
+              {locationLabel}
+            </AppText>
+          </View>
+        </View>
+
+        {/* Action Button */}
+        <View style={styles.actionContainer}>
+          {isAvailable ? (
+            <Button
+              label="Select Table"
+              onPress={onSelect}
+              accessibilityLabel={`Select ${tableLabel}, Seats ${table.capacity}, ${locationLabel}`}
+            />
+          ) : (
+            <Button
+              label={table.status === 'reserved' ? 'Reserved' : 'Unavailable'}
+              disabled
+              variant="secondary"
+              accessibilityLabel={`${tableLabel} is currently unavailable`}
+            />
+          )}
+        </View>
+      </View>
+    </Card>
   );
 }
 
-/** Interactive card for each table */
-function TableGridCard({
-  table,
-  onPress,
-}: {
-  table: Table;
-  onPress: () => void;
-}) {
-  const isAvailable = table.status === 'available';
-  const isOccupied = table.status === 'occupied';
-  const isReserved = table.status === 'reserved';
-
-  const tone = isAvailable ? 'success' : isReserved ? 'warning' : 'neutral';
-  const statusLabel = isAvailable
-    ? 'Available'
-    : isOccupied
-      ? 'Occupied'
-      : isReserved
-        ? 'Reserved'
-        : 'Maintenance';
-
+function TableCardSkeleton() {
   return (
-    <Pressable
-      style={[
-        styles.tableCard,
-        isAvailable && styles.tableCardAvailable,
-        isOccupied && styles.tableCardOccupied,
-        isReserved && styles.tableCardReserved,
-      ]}
-      onPress={isAvailable ? onPress : undefined}
-      disabled={!isAvailable}
-      accessibilityRole={isAvailable ? 'button' : 'text'}
-      accessibilityLabel={`Table ${table.tableNumber}, ${table.capacity} seats, ${table.location}, ${statusLabel}`}
-    >
-      <View style={styles.tableCardTop}>
-        <View style={styles.tableNumberBadge}>
-          <AppText variant="heading" style={styles.tableNumberText}>
-            {table.tableNumber}
-          </AppText>
+    <Card padded={false} style={styles.card}>
+      <Skeleton height={150} radius={0} />
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeaderRow}>
+          <Skeleton height={24} width="40%" />
+          <Skeleton height={24} width="25%" radius={radius.pill} />
         </View>
-        <Badge label={statusLabel} tone={tone} />
+        <Skeleton height={18} width="35%" />
+        <Skeleton height={18} width="45%" />
+        <Skeleton height={48} radius={radius.md} style={{ marginTop: spacing.xs }} />
       </View>
-
-      <View style={styles.tableCardDetails}>
-        <View style={styles.tableDetailRow}>
-          <Ionicons name="people-outline" size={14} color={colors.textSecondary} />
-          <AppText variant="secondary" style={styles.tableDetailText}>
-            {table.capacity} Seats
-          </AppText>
-        </View>
-
-        {table.location ? (
-          <View style={styles.tableDetailRow}>
-            <Ionicons name="compass-outline" size={14} color={colors.textSecondary} />
-            <AppText variant="secondary" style={styles.tableDetailText} numberOfLines={1}>
-              {table.location}
-            </AppText>
-          </View>
-        ) : null}
-      </View>
-
-      <View style={styles.tableCardAction}>
-        {isAvailable ? (
-          <View style={styles.bookNowRow}>
-            <AppText variant="label" style={styles.bookNowText}>
-              Reserve
-            </AppText>
-            <Ionicons name="arrow-forward" size={14} color={colors.primary} />
-          </View>
-        ) : (
-          <AppText variant="caption" style={styles.occupiedText}>
-            {isOccupied ? 'Seated now' : 'Reserved today'}
-          </AppText>
-        )}
-      </View>
-    </Pressable>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, paddingBottom: spacing['4xl'], gap: spacing.lg },
-  loadingContainer: { gap: spacing.md },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
-  greetingBlock: { flex: 1, gap: 2 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  root: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    padding: spacing.lg,
+    paddingBottom: spacing['4xl'],
+    gap: spacing.lg,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  headerLeft: {
+    flex: 1,
+    gap: 3,
+  },
+  restaurantContext: {
+    letterSpacing: 1,
+    color: colors.primaryMuted,
+    fontWeight: '700',
+  },
+  pageTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    color: colors.textPrimary,
+  },
+  subtitle: {
+    marginTop: 2,
+    fontSize: 14,
+  },
   bell: {
     width: 44,
     height: 44,
@@ -677,268 +536,100 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  bellBadgeText: { color: colors.textOnPrimary, fontSize: 10, fontWeight: '700' },
-
-  // Hero Card
-  heroCard: {
-    padding: 0,
+  bellBadgeText: {
+    color: colors.textOnPrimary,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  liveBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  liveDotRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.success,
+  },
+  liveBarTitle: {
+    fontSize: 13,
+    color: colors.textPrimary,
+  },
+  filterSection: {
+    gap: spacing.sm,
+  },
+  filterRow: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  loadingList: {
+    gap: spacing.lg,
+  },
+  tableList: {
+    gap: spacing.xl,
+  },
+  card: {
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
     ...shadow.card,
   },
-  heroImage: {
+  cardUnavailable: {
+    opacity: 0.88,
+  },
+  imageContainer: {
     width: '100%',
-    height: 170,
+    height: 155,
     backgroundColor: colors.skeleton,
+    position: 'relative',
   },
-  heroFallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primarySoft,
+  cardImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
-  heroBody: {
+  imageOverlayBadge: {
+    position: 'absolute',
+    top: spacing.md,
+    right: spacing.md,
+  },
+  cardBody: {
     padding: spacing.lg,
     gap: spacing.md,
   },
-  heroTitleRow: {
+  cardHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.sm,
   },
-  heroTitleBlock: { flex: 1, gap: 2 },
-  restaurantName: { fontSize: 22 },
-  ratingBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.surfaceAlt,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+  tableTitle: {
+    fontSize: 20,
+    color: colors.textPrimary,
   },
-  description: { color: colors.textSecondary },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  linksRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.xs,
-  },
-  linkButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minHeight: 44,
-  },
-  linkLabel: { flex: 1, color: colors.primary },
-
-  // Info cards
-  infoRow: { flexDirection: 'row', gap: spacing.md },
-  infoCard: { flex: 1, gap: spacing.xs, padding: spacing.md },
-  infoCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-
-  // Primary Actions
-  primaryActionBox: {
-    gap: spacing.md,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    ...shadow.card,
-  },
-  queueButton: {
-    minHeight: 56,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-    backgroundColor: colors.infoBox,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.lg,
-  },
-  queueButtonInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  queueButtonText: { flex: 1, gap: 2 },
-  queueButtonTitle: { fontSize: 14, color: colors.primary },
-  helpToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-    paddingVertical: spacing.xs,
-  },
-  helpLabel: { color: colors.primary, fontSize: 13, textDecorationLine: 'underline' },
-
-  // Tables Section
-  tablesSection: {
-    gap: spacing.md,
-    marginTop: spacing.xs,
-  },
-  sectionHeaderRow: {
-    flexDirection: 'column',
-    gap: spacing.xs,
-  },
-  sectionHeaderLeft: { gap: 2 },
-  titleWithLive: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.success,
-  },
-  liveText: { fontSize: 10, fontWeight: '600', color: colors.success },
-
-  // Stat Pills
-  statPillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  statPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  detailsBlock: {
     gap: 6,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.pill,
   },
-  statPillActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  statPillDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-  },
-  statPillText: { fontSize: 12, color: colors.textPrimary },
-  statPillTextActive: { color: colors.textOnPrimary },
-  statPillCount: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  statPillCountActive: {
-    backgroundColor: colors.primaryMuted,
-  },
-  statPillCountText: { fontSize: 11, fontWeight: '700', color: colors.textPrimary },
-  statPillCountTextActive: { color: colors.textOnPrimary },
-
-  locationChips: {
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-
-  // Tables Grid
-  tableGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.md,
-  },
-  tableGridItem: {
-    width: '47%',
-  },
-  tableCard: {
-    width: '47%',
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    padding: spacing.md,
-    gap: spacing.sm,
-    ...shadow.card,
-  },
-  tableCardAvailable: {
-    borderColor: colors.success,
-    backgroundColor: colors.surface,
-  },
-  tableCardOccupied: {
-    opacity: 0.72,
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-  },
-  tableCardReserved: {
-    opacity: 0.85,
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.warning,
-  },
-  tableCardTop: {
+  detailRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 8,
   },
-  tableNumberBadge: {
-    backgroundColor: colors.primarySoft,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
+  detailText: {
+    fontSize: 14,
   },
-  tableNumberText: {
-    fontSize: 16,
-    color: colors.primary,
-  },
-  tableCardDetails: {
-    gap: 4,
-  },
-  tableDetailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-  },
-  tableDetailText: {
-    fontSize: 12,
-  },
-  tableCardAction: {
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    paddingTop: spacing.xs,
-    marginTop: 2,
-  },
-  bookNowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  bookNowText: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  occupiedText: {
-    color: colors.textMuted,
-    fontSize: 11,
+  actionContainer: {
+    marginTop: spacing.xs,
   },
 });
-
