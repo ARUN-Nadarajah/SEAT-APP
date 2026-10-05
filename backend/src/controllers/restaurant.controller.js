@@ -1,12 +1,31 @@
 const { asyncHandler } = require("../utils/errors");
 const { success } = require("../utils/response");
-const { validateQuery, validateParams } = require("../middleware/validation.middleware");
-const { assertObjectId } = require("../middleware/validation.middleware");
+const {
+  validateQuery,
+  validateBody,
+  assertObjectId,
+} = require("../middleware/validation.middleware");
 const restaurantService = require("../services/restaurant.service");
+const Restaurant = require("../models/Restaurant");
 const {
   validateRestaurantQuery,
   validateSlotQuery,
+  validateRestaurantUpdate,
 } = require("../validations/restaurant.validation");
+const { scopedRestaurantId } = require("../middleware/role.middleware");
+
+async function managerCanAccessRestaurant(req, id) {
+  const assignedId = scopedRestaurantId(req);
+  if (assignedId) return String(assignedId) === id;
+
+  // Legacy manager records may not have restaurantId. The product has one
+  // managed restaurant, so only allow the fallback when the database confirms
+  // there is exactly one active restaurant.
+  const activeRestaurants = await Restaurant.find({ status: "active" })
+    .select("_id")
+    .lean();
+  return activeRestaurants.length === 1 && String(activeRestaurants[0]._id) === id;
+}
 
 /**
  * Restaurants (spec §7 / FR01 / FR02).
@@ -61,6 +80,20 @@ const getMenu = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+/** GET /api/restaurants/:id/management — manager-only shared record view. */
+const getRestaurantInfo = asyncHandler(async (req, res) => {
+  const id = parseId(req);
+  if (!(await managerCanAccessRestaurant(req, id))) {
+    return res.status(403).json({
+      status: "error",
+      message: "You do not have permission to access this restaurant.",
+      code: "forbidden",
+    });
+  }
+  const result = await restaurantService.getRestaurantInfo(id);
+  success(res, result);
+});
+
 /** POST /api/restaurants — manager/admin only (seed + admin tooling). */
 const createRestaurant = asyncHandler(async (req, res) => {
   const restaurant = await restaurantService.createRestaurant(req.body);
@@ -68,22 +101,21 @@ const createRestaurant = asyncHandler(async (req, res) => {
 });
 
 /** PUT /api/restaurants/:id — manager edits venue details. */
-const updateRestaurant = asyncHandler(async (req, res) => {
+const updateRestaurant = [
+  validateBody(validateRestaurantUpdate),
+  asyncHandler(async (req, res) => {
   const id = parseId(req);
-  const Restaurant = require("../models/Restaurant");
-  const restaurant = await Restaurant.findByIdAndUpdate(id, req.body, {
-    new: true,
-    runValidators: true,
-  });
-  if (!restaurant) {
-    return res.status(404).json({
+  if (!(await managerCanAccessRestaurant(req, id))) {
+    return res.status(403).json({
       status: "error",
-      message: "Restaurant not found.",
-      code: "not_found",
+      message: "You do not have permission to update this restaurant.",
+      code: "forbidden",
     });
   }
-  return success(res, { data: restaurant });
-});
+  const result = await restaurantService.updateRestaurantInfo(id, req.body);
+  return success(res, result);
+  }),
+];
 
 /** DELETE /api/restaurants/:id — soft-delete by marking inactive. */
 const deleteRestaurant = asyncHandler(async (req, res) => {
@@ -110,6 +142,7 @@ module.exports = {
   getRestaurantById,
   getAvailableSlots,
   getMenu,
+  getRestaurantInfo,
   createRestaurant,
   updateRestaurant,
   deleteRestaurant,

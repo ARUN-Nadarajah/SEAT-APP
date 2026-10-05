@@ -68,6 +68,21 @@ export type RestaurantDetail = RestaurantCard & {
   slots: TimeSlot[];
 };
 
+export type RestaurantInfo = {
+  _id: string;
+  name: string;
+  description: string;
+  phone: string;
+  address: string;
+  openingTime: string;
+  closingTime: string;
+  cuisine: string;
+  parking: boolean;
+  parkingLabel: string;
+  images: string[];
+  updatedAt?: string;
+};
+
 export type MenuItem = {
   name: string;
   description: string;
@@ -191,6 +206,7 @@ export type Table = {
   tableNumber: string;
   capacity: number;
   location: string;
+  type?: string;
   status: TableStatus;
   statusChangedAt?: string;
   isActive: boolean;
