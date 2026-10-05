@@ -13,6 +13,35 @@ export async function fetchTables(restaurantId: string, date?: string) {
   const { data } = await apiClient.get<
     ApiEnvelope<Table[]> & { summary: TableSummary }
   >('/tables', { params: { restaurantId, date } });
+
+  return {
+    ...data,
+    data: (data.data ?? []).map((table) => ({
+      ...table,
+      id: String(table.id ?? table._id ?? `table-${table.tableNumber}`),
+      _id: String(table._id ?? table.id ?? `table-${table.tableNumber}`),
+    })),
+  };
+}
+
+export async function createTable(input: {
+  restaurantId: string;
+  tableNumber: string;
+  capacity: number;
+  location?: string;
+  type?: string;
+  status?: TableStatus;
+  isActive?: boolean;
+}) {
+  const { data } = await apiClient.post<ApiEnvelope<Table>>('/tables', input);
+  return data;
+}
+
+export async function updateTable(
+  id: string,
+  input: Partial<Pick<Table, 'tableNumber' | 'capacity' | 'location' | 'type' | 'status'>>,
+) {
+  const { data } = await apiClient.patch<ApiEnvelope<Table>>(`/tables/${id}`, input);
   return data;
 }
 

@@ -191,6 +191,7 @@ export type Table = {
   tableNumber: string;
   capacity: number;
   location: string;
+  type?: string;
   status: TableStatus;
   statusChangedAt?: string;
   isActive: boolean;

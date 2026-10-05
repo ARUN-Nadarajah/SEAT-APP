@@ -2,8 +2,9 @@ const express = require("express");
 
 const {
   getTables,
-  updateTableStatus,
   createTables,
+  updateTable,
+  updateTableStatus,
 } = require("../controllers/table.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
@@ -15,8 +16,11 @@ router.use(authenticate, requireRole("staff", "manager"));
 // Staff floor plan (FR08) — restaurant managers may also view.
 router.get("/", getTables);
 
-// Bulk (re)create — seed script and manager tooling.
+// Add a single table or bulk create via the seed script.
 router.post("/", createTables);
+
+// Edit table details (number, capacity, location, type, status).
+router.patch("/:id", updateTable);
 
 // FR08 — toggle Available / Occupied / Reserved.
 router.patch("/:id/status", updateTableStatus);
