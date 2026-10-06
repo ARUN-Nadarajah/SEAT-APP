@@ -7,6 +7,8 @@ const {
   validateTableStatus,
   validateTableInput,
   validateTableUpdate,
+  validateAvailableTablesQuery,
+  validateSlotAvailabilityQuery,
 } = require("../validations/table.validation");
 
 /**
@@ -22,6 +24,24 @@ const getTables = [
       restaurantId: req.query.restaurantId,
       date: req.query.date,
     });
+    success(res, result);
+  }),
+];
+
+/** GET /api/tables/available — dynamic available tables for reservation slot (Section 6). */
+const getAvailableTables = [
+  validateQuery(validateAvailableTablesQuery),
+  asyncHandler(async (req, res) => {
+    const result = await tableService.getAvailableTables(req.query);
+    success(res, result);
+  }),
+];
+
+/** GET /api/tables/slot-availability — slot availability for greyed-out time slots */
+const getSlotAvailability = [
+  validateQuery(validateSlotAvailabilityQuery),
+  asyncHandler(async (req, res) => {
+    const result = await tableService.getSlotAvailability(req.query);
     success(res, result);
   }),
 ];
@@ -63,6 +83,8 @@ const updateTableStatus = asyncHandler(async (req, res) => {
 
 module.exports = {
   getTables,
+  getAvailableTables,
+  getSlotAvailability,
   createTables,
   updateTable,
   updateTableStatus,

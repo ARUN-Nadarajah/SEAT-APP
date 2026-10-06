@@ -1,5 +1,5 @@
 import { apiClient, type ApiEnvelope } from './client';
-import type { Booking, BookingList, SlotAlternative, TimeSlot } from './types';
+import type { Booking, BookingList, SlotAlternative, Table, TimeSlot } from './types';
 
 /**
  * Reservations (spec §7 / FR02, FR07, FR09).
@@ -11,12 +11,63 @@ import type { Booking, BookingList, SlotAlternative, TimeSlot } from './types';
 export type CreateBookingInput = {
   restaurantId: string;
   date: string;
-  time: string;
+  time?: string;
+  startTime?: string;
+  endTime?: string;
   partySize: number;
-    tableId?: string;
+  tableId?: string;
   guestName?: string;
   specialRequest?: string;
 };
+
+export type FetchAvailableTablesParams = {
+  restaurantId?: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  partySize: number;
+};
+
+export async function fetchAvailableTables(params: FetchAvailableTablesParams) {
+  const { data } = await apiClient.get<ApiEnvelope<Table[]>>('/tables/available', {
+    params,
+  });
+  return data;
+}
+
+export type SlotAvailabilityItem = {
+  time: string;
+  timeLabel: string;
+  durationMinutes?: number;
+  available: boolean;
+  tableCount?: number;
+};
+
+export type SlotAvailabilityData = {
+  date: string;
+  partySize: number;
+  tableId: string | null;
+  maxCapacity?: number;
+  hasTablesForPartySize?: boolean;
+  startSlots: SlotAvailabilityItem[];
+  endSlots: SlotAvailabilityItem[];
+};
+
+export type FetchSlotAvailabilityParams = {
+  restaurantId?: string;
+  date: string;
+  partySize?: number;
+  tableId?: string;
+  startTime?: string;
+};
+
+export async function fetchSlotAvailability(params: FetchSlotAvailabilityParams) {
+  const { data } = await apiClient.get<ApiEnvelope<SlotAvailabilityData>>(
+    '/tables/slot-availability',
+    { params },
+  );
+  return data;
+}
 
 export type SlotUnavailableError = {
   code: 'slot_unavailable';
@@ -66,7 +117,10 @@ export async function fetchBooking(id: string) {
 export type UpdateBookingInput = {
   date?: string;
   time?: string;
+  startTime?: string;
+  endTime?: string;
   partySize?: number;
+  tableId?: string;
   specialRequest?: string;
 };
 

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -18,16 +18,18 @@ import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
   fetchBooking,
-  fetchRestaurant,
+  fetchSlotAvailability,
+  fetchTables,
   updateBooking,
   type Booking,
+  type Table,
 } from '@/services/api';
 import { parseSlotUnavailable } from '@/services/api/reservations.api';
 import { colors, radius, spacing } from '@/theme';
 
-const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8, 10];
+const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20];
 
-function nextDays(count = 7) {
+function nextDays(count = 30) {
   return Array.from({ length: count }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() + index);
@@ -40,25 +42,63 @@ function nextDays(count = 7) {
   });
 }
 
-/**
- * Change Reservation (FR07).
- *
- * Two exits, exactly as specced: "Save changes" and "Keep existing booking".
- * The existing booking is never touched until Save succeeds, and a vanished
- * slot is reported inline with alternatives.
- */
+function generateStartTimes(): { value: string; label: string }[] {
+  const times: { value: string; label: string }[] = [];
+  for (let m = 480; m <= 1290; m += 30) {
+    const hours = Math.floor(m / 60);
+    const mins = m % 60;
+    const value = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    const meridiem = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+    const label = `${hour12}:${String(mins).padStart(2, '0')} ${meridiem}`;
+    times.push({ value, label });
+  }
+  return times;
+}
+
+function generateEndTimes(startValue: string): { value: string; label: string; durationLabel: string }[] {
+  const times: { value: string; label: string; durationLabel: string }[] = [];
+  const [sH, sM] = (startValue || '').split(':').map(Number);
+  const startMin = (sH || 0) * 60 + (sM || 0);
+
+  for (let m = startMin + 30; m <= 1320; m += 30) {
+    const hours = Math.floor(m / 60);
+    const mins = m % 60;
+    const value = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
+    const meridiem = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+    const label = `${hour12}:${String(mins).padStart(2, '0')} ${meridiem}`;
+
+    const diff = m - startMin;
+    const hoursPart = Math.floor(diff / 60);
+    const minsPart = diff % 60;
+    let durationLabel = '';
+    if (hoursPart > 0 && minsPart > 0) {
+      durationLabel = `${hoursPart}h ${minsPart}m`;
+    } else if (hoursPart > 0) {
+      durationLabel = `${hoursPart} hr${hoursPart > 1 ? 's' : ''}`;
+    } else {
+      durationLabel = `${minsPart} min`;
+    }
+    times.push({ value, label, durationLabel });
+  }
+  return times;
+}
+
+function formatSlotLabel(time: string): string {
+  const [hours, minutes] = (time || '').split(':').map(Number);
+  if (Number.isNaN(hours)) return time;
+  const meridiem = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes ?? 0).padStart(2, '0')} ${meridiem}`;
+}
+
 export default function ChangeReservationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { showToast } = useFeedback();
 
-  const [partySize, setPartySize] = useState<number | null>(null);
-  const [date, setDate] = useState<string | null>(null);
-  const [time, setTime] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [alternatives, setAlternatives] = useState<{ time: string; label: string }[]>([]);
-
-  const days = useMemo(() => nextDays(), []);
+  const days = useMemo(() => nextDays(30), []);
+  const startTimes = useMemo(() => generateStartTimes(), []);
 
   const bookingQuery = useApiQuery(['booking', id], () => fetchBooking(id!), {
     enabled: Boolean(id),
@@ -66,23 +106,113 @@ export default function ChangeReservationScreen() {
 
   const rawBookingData = bookingQuery.data?.data as Record<string, any> | undefined;
   const booking = (rawBookingData?.reservation ?? rawBookingData) as Booking | undefined;
+
+  const [partySize, setPartySize] = useState<number | null>(null);
+  const [date, setDate] = useState<string | null>(null);
+  const [startTime, setStartTime] = useState<string | null>(null);
+  const [endTime, setEndTime] = useState<string | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [alternatives, setAlternatives] = useState<{ time: string; label: string }[]>([]);
+
   const effectiveParty = partySize ?? booking?.partySize ?? 2;
   const effectiveDate = date ?? (booking ? booking.date.slice(0, 10) : days[0].value);
+  const effectiveStartTime = startTime ?? booking?.startTime ?? booking?.time ?? '12:00';
+  const effectiveEndTime = endTime ?? booking?.endTime ?? '13:30';
 
-  const restaurantQuery = useApiQuery(
-    ['restaurant', booking?.restaurant?.id],
-    () =>
-      fetchRestaurant(booking!.restaurant!.id, {
-        partySize: effectiveParty,
-        date: effectiveDate,
-      }),
-    { enabled: Boolean(booking?.restaurant?.id) },
+  const endTimes = useMemo(() => generateEndTimes(effectiveStartTime), [effectiveStartTime]);
+
+  const restaurantId = booking?.restaurant?.id || '';
+
+  const [isChangingTable, setIsChangingTable] = useState(false);
+
+  // Venue tables query (table selection priority)
+  const tablesQuery = useApiQuery(
+    ['restaurant-tables', restaurantId],
+    () => fetchTables(restaurantId),
+    { enabled: Boolean(restaurantId) },
   );
 
-  const slots = restaurantQuery.data?.data?.slots ?? [];
-  const effectiveTime = time ?? booking?.time ?? null;
+  const allTables: Table[] = tablesQuery.data?.data ?? [];
+
+  const eligibleTables = useMemo(() => {
+    return allTables
+      .filter((t) => t.isActive !== false && t.status !== 'maintenance' && t.capacity >= effectiveParty)
+      .sort((a, b) => {
+        if (a.capacity !== b.capacity) return a.capacity - b.capacity;
+        return a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true });
+      });
+  }, [allTables, effectiveParty]);
+
+  const currentTableId = selectedTableId ?? (booking?.tableId || null);
+  const selectedTable = useMemo(() => {
+    return allTables.find((t) => t.id === currentTableId || t._id === currentTableId) || null;
+  }, [allTables, currentTableId]);
+
+  // If party size exceeds current table capacity, expand table selection
+  useEffect(() => {
+    if (selectedTable && selectedTable.capacity < effectiveParty) {
+      setIsChangingTable(true);
+    }
+  }, [selectedTable, effectiveParty]);
+
+  // Slot availability query (Greys out unavailable slots FOR THE SELECTED TABLE)
+  const slotAvailabilityQuery = useApiQuery(
+    ['change-slot-availability', restaurantId, effectiveDate, effectiveParty, currentTableId, effectiveStartTime],
+    async () => {
+      if (!restaurantId || !effectiveDate) return null;
+      const res = await fetchSlotAvailability({
+        restaurantId,
+        date: effectiveDate,
+        partySize: effectiveParty,
+        tableId: currentTableId || undefined,
+        startTime: effectiveStartTime || undefined,
+      });
+      return res.data ?? null;
+    },
+    {
+      enabled: Boolean(restaurantId && effectiveDate && effectiveParty > 0),
+    },
+  );
+
+  const slotData = slotAvailabilityQuery.data;
+
+  // Adjust startTime if current selection is unavailable
+  useEffect(() => {
+    if (slotData?.startSlots && slotData.startSlots.length > 0) {
+      const current = slotData.startSlots.find((s) => s.time === effectiveStartTime);
+      if (current && !current.available) {
+        const firstFree = slotData.startSlots.find((s) => s.available);
+        if (firstFree) {
+          setStartTime(firstFree.time);
+        }
+      }
+    }
+  }, [slotData, effectiveStartTime]);
+
+  // Adjust endTime when startTime or slotData changes
+  useEffect(() => {
+    const validEnds = generateEndTimes(effectiveStartTime);
+    if (!validEnds.some((e) => e.value === effectiveEndTime)) {
+      setEndTime(validEnds[1]?.value || validEnds[0]?.value || '13:00');
+    } else if (slotData?.endSlots && slotData.endSlots.length > 0) {
+      const currentEnd = slotData.endSlots.find((e) => e.time === effectiveEndTime);
+      if (currentEnd && !currentEnd.available) {
+        const firstFreeEnd = slotData.endSlots.find((e) => e.available);
+        if (firstFreeEnd) {
+          setEndTime(firstFreeEnd.time);
+        }
+      }
+    }
+  }, [effectiveStartTime, slotData]);
+
   const hasChanges =
-    partySize !== null || date !== null || (time !== null && time !== booking?.time);
+    partySize !== null ||
+    date !== null ||
+    (startTime !== null && startTime !== (booking?.startTime || booking?.time)) ||
+    (endTime !== null && endTime !== booking?.endTime) ||
+    (selectedTableId !== null && selectedTableId !== booking?.tableId);
 
   if (bookingQuery.isLoading) {
     return (
@@ -111,7 +241,6 @@ export default function ChangeReservationScreen() {
   }
 
   async function onSave() {
-    // Captured locally so the async body never sees a stale/undefined value.
     const current = booking;
     if (!current) return;
 
@@ -123,14 +252,18 @@ export default function ChangeReservationScreen() {
       await updateBooking(current.id, {
         partySize: effectiveParty,
         date: effectiveDate,
-        time: effectiveTime ?? undefined,
+        startTime: effectiveStartTime,
+        endTime: effectiveEndTime,
+        time: effectiveStartTime,
+        tableId: selectedTable?.id || selectedTable?._id || undefined,
       });
+
       router.replace({
         pathname: '/bookings/updated',
         params: {
           bookingId: current.bookingId,
           reservationId: current.id,
-          time: effectiveTime ?? current.time,
+          time: `${formatSlotLabel(effectiveStartTime)} – ${formatSlotLabel(effectiveEndTime)}`,
           date: effectiveDate,
           partySize: String(effectiveParty),
         },
@@ -169,14 +302,17 @@ export default function ChangeReservationScreen() {
           </AppText>
         </InfoBox>
 
-        {/* Party size */}
+        {/* 1 — Party size */}
         <Card>
           <SectionTitle>Party size</SectionTitle>
           <View style={styles.partyRow}>
             {PARTY_SIZES.map((size) => (
               <Pressable
                 key={size}
-                onPress={() => setPartySize(size)}
+                onPress={() => {
+                  setPartySize(size);
+                  setSelectedTableId(null);
+                }}
                 style={[styles.chip, effectiveParty === size && styles.chipActive]}
                 accessibilityRole="button"
                 accessibilityState={{ selected: effectiveParty === size }}
@@ -191,9 +327,19 @@ export default function ChangeReservationScreen() {
               </Pressable>
             ))}
           </View>
+          {slotData && slotData.hasTablesForPartySize === false ? (
+            <View style={{ marginTop: spacing.md }}>
+              <InfoBox tone="warning">
+                <AppText variant="label">Party size exceeds table capacity</AppText>
+                <AppText variant="secondary">
+                  This venue accommodates up to {slotData.maxCapacity || 8} guests per table. For larger parties, please contact the restaurant directly.
+                </AppText>
+              </InfoBox>
+            </View>
+          ) : null}
         </Card>
 
-        {/* Date */}
+        {/* 2 — Date */}
         <Card>
           <SectionTitle>Date</SectionTitle>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.days}>
@@ -204,7 +350,7 @@ export default function ChangeReservationScreen() {
                   key={day.value}
                   onPress={() => {
                     setDate(day.value);
-                    setTime(null);
+                    setSelectedTableId(null);
                   }}
                   style={[styles.day, selected && styles.dayActive]}
                   accessibilityRole="button"
@@ -225,46 +371,220 @@ export default function ChangeReservationScreen() {
           </ScrollView>
         </Card>
 
-        {/* Time */}
-        <Card>
-          <SectionTitle>Time</SectionTitle>
-          {restaurantQuery.isLoading ? (
-            <Skeleton height={56} radius={radius.md} />
-          ) : slots.filter((slot) => slot.available).length === 0 ? (
-            <InfoBox tone="warning">
-              <AppText variant="label">No free slots that day</AppText>
-              <AppText variant="secondary">
-                Pick another date — your current booking is untouched.
-              </AppText>
-            </InfoBox>
-          ) : (
-            <View style={styles.slots}>
-              {slots.map((slot) => (
-                <Pressable
-                  key={slot.time}
-                  disabled={!slot.available}
-                  onPress={() => setTime(slot.time)}
-                  style={[
-                    styles.slot,
-                    !slot.available && styles.slotDisabled,
-                    effectiveTime === slot.time && styles.slotActive,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: effectiveTime === slot.time, disabled: !slot.available }}
-                >
-                  <AppText
-                    variant="label"
-                    style={[
-                      effectiveTime === slot.time ? styles.chipTextActive : undefined,
-                      !slot.available && styles.slotTextDisabled,
-                    ]}
-                  >
-                    {slot.timeLabel}
+        {/* 3 — Table Selection (Priority) */}
+        {selectedTable && selectedTable.capacity >= effectiveParty && !isChangingTable ? (
+          <Card>
+            <View style={styles.sectionHeaderRow}>
+              <SectionTitle>Your selected table</SectionTitle>
+              <Pressable
+                onPress={() => setIsChangingTable(true)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Change table"
+              >
+                <AppText variant="label" style={styles.changeTableButtonText}>
+                  Change table
+                </AppText>
+              </Pressable>
+            </View>
+
+            <View style={styles.selectedTableCard}>
+              <View style={styles.tableCardLeft}>
+                <View style={[styles.radioCircle, styles.radioCircleSelected]}>
+                  <Ionicons name="checkmark" size={14} color={colors.textOnPrimary} />
+                </View>
+                <View style={{ gap: 2 }}>
+                  <AppText variant="label" style={styles.tableTitleActive}>
+                    Table {selectedTable.tableNumber}
+                  </AppText>
+                  <AppText variant="caption" style={styles.tableMeta}>
+                    Up to {selectedTable.capacity} seats · {selectedTable.location || 'Indoor'}
+                  </AppText>
+                </View>
+              </View>
+              <View style={styles.tableCardRight}>
+                <AppText variant="caption" style={styles.tableRate}>
+                  Rs. {selectedTable.hourlyReservationRate ?? 300}/hr
+                </AppText>
+              </View>
+            </View>
+          </Card>
+        ) : (
+          <Card>
+            <View style={styles.sectionHeaderRow}>
+              <SectionTitle>Select table</SectionTitle>
+              {selectedTable && selectedTable.capacity >= effectiveParty ? (
+                <Pressable onPress={() => setIsChangingTable(false)} hitSlop={8}>
+                  <AppText variant="label" style={styles.changeTableButtonText}>
+                    Keep Table {selectedTable.tableNumber}
                   </AppText>
                 </Pressable>
-              ))}
+              ) : null}
             </View>
-          )}
+
+            {selectedTable && selectedTable.capacity < effectiveParty ? (
+              <View style={{ marginBottom: spacing.sm }}>
+                <InfoBox tone="warning">
+                  <AppText variant="caption">
+                    Table {selectedTable.tableNumber} accommodates up to {selectedTable.capacity} guests. Please select a table for {effectiveParty} guests below:
+                  </AppText>
+                </InfoBox>
+              </View>
+            ) : null}
+
+            {tablesQuery.isLoading ? (
+              <Skeleton height={56} radius={radius.md} />
+            ) : eligibleTables.length === 0 ? (
+              <InfoBox tone="warning">
+                <AppText variant="label">No free tables for this party size</AppText>
+                <AppText variant="secondary">
+                  No tables can seat {effectiveParty} guests at this venue.
+                </AppText>
+              </InfoBox>
+            ) : (
+              <View style={styles.tableList}>
+                {eligibleTables.map((t) => {
+                  const isSelected = (selectedTable?.id || selectedTable?._id) === (t.id || t._id);
+                  return (
+                    <Pressable
+                      key={t.id || t._id}
+                      onPress={() => {
+                        setSelectedTableId(t.id || t._id || null);
+                        setIsChangingTable(false);
+                      }}
+                      style={[styles.tableCard, isSelected && styles.tableCardSelected]}
+                    >
+                      <View style={styles.tableCardLeft}>
+                        <View style={[styles.radioCircle, isSelected && styles.radioCircleSelected]}>
+                          {isSelected ? (
+                            <Ionicons name="checkmark" size={14} color={colors.textOnPrimary} />
+                          ) : null}
+                        </View>
+                        <View>
+                          <AppText variant="label" style={isSelected ? styles.tableTitleActive : undefined}>
+                            Table {t.tableNumber}
+                          </AppText>
+                          <AppText variant="caption" style={styles.tableMeta}>
+                            Up to {t.capacity} seats · {t.location || 'Indoor'}
+                          </AppText>
+                        </View>
+                      </View>
+                      <View style={styles.tableCardRight}>
+                        <AppText variant="caption" style={styles.tableRate}>
+                          Rs. {t.hourlyReservationRate ?? 300}/hr
+                        </AppText>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </Card>
+        )}
+
+        {/* 4 — Time range */}
+        <Card>
+          <View style={styles.sectionHeaderRow}>
+            <SectionTitle>Time range</SectionTitle>
+            {slotAvailabilityQuery.isFetching ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : null}
+          </View>
+          <AppText variant="caption" style={styles.subHint}>
+            {selectedTable
+              ? `Available times for Table ${selectedTable.tableNumber} · Greyed-out slots are already reserved`
+              : 'Operating hours: 8:00 AM – 10:00 PM · Greyed-out slots are unavailable'}
+          </AppText>
+
+          <AppText variant="label" style={styles.timeLabel}>
+            Start Time
+          </AppText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeScroll}>
+            {startTimes.map((st) => {
+              const isSelected = effectiveStartTime === st.value;
+              const slotInfo = slotData?.startSlots?.find((s) => s.time === st.value);
+              const isAvailable = slotInfo ? slotInfo.available : true;
+
+              return (
+                <Pressable
+                  key={st.value}
+                  disabled={!isAvailable}
+                  onPress={() => {
+                    setStartTime(st.value);
+                  }}
+                  style={[
+                    styles.timeChip,
+                    isSelected && styles.timeChipActive,
+                    !isAvailable && styles.timeChipDisabled,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected, disabled: !isAvailable }}
+                  accessibilityLabel={`${st.label}${!isAvailable ? ' unavailable' : ''}`}
+                >
+                  <AppText
+                    variant="caption"
+                    style={[
+                      styles.timeChipText,
+                      isSelected && styles.timeChipTextActive,
+                      !isAvailable && styles.timeChipTextDisabled,
+                    ]}
+                  >
+                    {st.label}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          <AppText variant="label" style={[styles.timeLabel, { marginTop: spacing.md }]}>
+            End Time
+          </AppText>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeScroll}>
+            {endTimes.map((et) => {
+              const isSelected = effectiveEndTime === et.value;
+              const endSlotInfo = slotData?.endSlots?.find((e) => e.time === et.value);
+              const isAvailable = endSlotInfo ? endSlotInfo.available : true;
+
+              return (
+                <Pressable
+                  key={et.value}
+                  disabled={!isAvailable}
+                  onPress={() => {
+                    setEndTime(et.value);
+                  }}
+                  style={[
+                    styles.timeChip,
+                    isSelected && styles.timeChipActive,
+                    !isAvailable && styles.timeChipDisabled,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected, disabled: !isAvailable }}
+                  accessibilityLabel={`${et.label} (${et.durationLabel})${!isAvailable ? ' unavailable' : ''}`}
+                >
+                  <AppText
+                    variant="caption"
+                    style={[
+                      styles.timeChipText,
+                      isSelected && styles.timeChipTextActive,
+                      !isAvailable && styles.timeChipTextDisabled,
+                    ]}
+                  >
+                    {et.label}
+                  </AppText>
+                  <AppText
+                    variant="caption"
+                    style={[
+                      styles.timeChipSub,
+                      isSelected && styles.timeChipSubActive,
+                      !isAvailable && styles.timeChipSubDisabled,
+                    ]}
+                  >
+                    {et.durationLabel}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </Card>
 
         {error ? (
@@ -278,7 +598,7 @@ export default function ChangeReservationScreen() {
                     <Pressable
                       key={slot.time}
                       onPress={() => {
-                        setTime(slot.time);
+                        setStartTime(slot.time);
                         setError(null);
                         setAlternatives([]);
                       }}
@@ -302,7 +622,7 @@ export default function ChangeReservationScreen() {
           label="Save changes"
           onPress={onSave}
           loading={saving}
-          disabled={!hasChanges}
+          disabled={!hasChanges || !selectedTable || isChangingTable || selectedTable.capacity < effectiveParty}
           testID="save-changes"
         />
         <Button
@@ -355,19 +675,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  content: { padding: spacing.lg, paddingBottom: spacing['2xl'], gap: spacing.lg },
-  footer: {
-    padding: spacing.lg,
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+  content: { padding: spacing.lg, paddingBottom: spacing['3xl'], gap: spacing.lg },
+  intro: { gap: spacing.xs },
+  subHint: { color: colors.textSecondary, marginBottom: spacing.sm },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
   },
-  intro: { gap: 2 },
   partyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
-    minWidth: 52,
-    minHeight: 48,
+    minWidth: 48,
+    minHeight: 44,
     borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -390,21 +710,68 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   dayActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  slots: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  slot: {
-    minWidth: 92,
-    minHeight: 50,
+  timeLabel: { fontSize: 14, color: colors.textPrimary, marginBottom: spacing.xs },
+  timeScroll: { gap: spacing.sm, paddingRight: spacing.lg },
+  timeChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: spacing.md,
+    minWidth: 80,
   },
-  slotActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  slotDisabled: { backgroundColor: colors.surfaceAlt, opacity: 0.55 },
-  slotTextDisabled: { textDecorationLine: 'line-through', color: colors.textMuted },
+  timeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  timeChipDisabled: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    opacity: 0.4,
+  },
+  timeChipText: { fontSize: 13, color: colors.textPrimary, fontWeight: '600' },
+  timeChipTextActive: { color: colors.textOnPrimary },
+  timeChipTextDisabled: {
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
+  },
+  timeChipSub: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+  timeChipSubActive: { color: colors.textOnPrimary, opacity: 0.9 },
+  timeChipSubDisabled: {
+    color: colors.textMuted,
+  },
+  tableList: { gap: spacing.sm, marginTop: spacing.sm },
+  tableCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  tableCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primarySoft || colors.surface,
+  },
+  tableCardLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
+  radioCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  radioCircleSelected: { borderColor: colors.primary, backgroundColor: colors.primary },
+  tableTitleActive: { color: colors.primary },
+  tableMeta: { color: colors.textSecondary },
+  tableCardRight: { alignItems: 'flex-end', gap: 2 },
+  tableRate: { color: colors.textSecondary, fontSize: 12 },
+  tableFee: { color: colors.primary, fontSize: 15, fontWeight: '700' },
   altRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   altChip: {
     paddingHorizontal: spacing.lg,
@@ -415,4 +782,28 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   altText: { color: colors.primary },
+  footer: {
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.sm,
+  },
+  changeTableButtonText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  selectedTableCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    marginTop: spacing.xs,
+  },
 });
+

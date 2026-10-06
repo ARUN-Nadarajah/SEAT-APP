@@ -1,9 +1,21 @@
 const Table = require("../models/Table");
 const Restaurant = require("../models/Restaurant");
+const Reservation = require("../models/Reservation");
 
 const { AppError } = require("../utils/errors");
 const { emitTableUpdated } = require("../realtime/events");
-const { today } = require("../utils/time");
+const {
+  today,
+  timeToMinutes,
+  minutesToTime,
+  formatTime,
+  validateReservationDate,
+  validateReservationTimeRange,
+} = require("../utils/time");
+const {
+  blockingReservations,
+  hasReservationConflict,
+} = require("../utils/availability");
 
 const STATUSES = ["available", "occupied", "reserved", "maintenance"];
 
@@ -14,6 +26,8 @@ function buildTablePayload(table) {
     restaurantId: table.restaurantId ? String(table.restaurantId) : table.restaurantId,
     tableNumber: table.tableNumber,
     capacity: table.capacity,
+    hourlyReservationRate:
+      table.hourlyReservationRate !== undefined ? table.hourlyReservationRate : 300,
     location: table.location || "",
     type: table.type || "Standard",
     status: table.status,
@@ -31,7 +45,10 @@ async function ensureRestaurantExists(restaurantId) {
   return restaurant;
 }
 
-async function createTable({ restaurantId, tableNumber, capacity, location, type, status }, user) {
+async function createTable(
+  { restaurantId, tableNumber, capacity, hourlyReservationRate, location, type, status },
+  user,
+) {
   if (!restaurantId) {
     throw new AppError("restaurantId is required.", 400, "validation_error");
   }
@@ -52,6 +69,11 @@ async function createTable({ restaurantId, tableNumber, capacity, location, type
     throw new AppError("capacity must be between 1 and 20 seats.", 400, "validation_error");
   }
 
+  const finalRate =
+    hourlyReservationRate !== undefined && Number.isFinite(Number(hourlyReservationRate))
+      ? Number(hourlyReservationRate)
+      : 300;
+
   const finalStatus = STATUSES.includes(String(status || "").trim().toLowerCase())
     ? String(status).trim().toLowerCase()
     : "available";
@@ -65,6 +87,7 @@ async function createTable({ restaurantId, tableNumber, capacity, location, type
     restaurantId,
     tableNumber: trimmedNumber,
     capacity: normalizedCapacity,
+    hourlyReservationRate: finalRate,
     location: String(location || "").trim(),
     type: String(type || "Standard").trim() || "Standard",
     status: finalStatus,
@@ -143,6 +166,13 @@ async function updateTable(tableId, updates, user) {
   }
   if (next.location !== undefined) next.location = String(next.location).trim();
   if (next.type !== undefined) next.type = String(next.type).trim() || "Standard";
+  if (next.hourlyReservationRate !== undefined) {
+    const rate = Number(next.hourlyReservationRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new AppError("hourlyReservationRate must be a positive number.", 400, "validation_error");
+    }
+    next.hourlyReservationRate = rate;
+  }
   if (next.status !== undefined) {
     const status = String(next.status).trim().toLowerCase();
     if (!STATUSES.includes(status)) {
@@ -169,6 +199,213 @@ async function updateTable(tableId, updates, user) {
   emitTableUpdated(table.restaurantId, payload);
 
   return { message: "Table details updated successfully.", data: payload };
+}
+
+/**
+ * GET /api/tables/available — Dynamic Available Tables API (Section 6).
+ * Finds tables free for [startTime, endTime) taking into account 30-min buffer.
+ */
+async function getAvailableTables({
+  restaurantId,
+  date,
+  startTime,
+  endTime,
+  partySize,
+}) {
+  let targetRestaurantId = restaurantId;
+  if (!targetRestaurantId) {
+    const defaultRestaurant = await Restaurant.findOne({ status: { $ne: "inactive" } }).lean();
+    if (defaultRestaurant) {
+      targetRestaurantId = defaultRestaurant._id;
+    } else {
+      throw new AppError("restaurantId is required.", 400, "validation_error");
+    }
+  }
+
+  const validDate = validateReservationDate(date);
+  const { startMinutes, endMinutes, durationMinutes, durationHours } =
+    validateReservationTimeRange(startTime, endTime);
+  const guests = Number(partySize) || 1;
+
+  const [tables, reservations] = await Promise.all([
+    Table.find({
+      restaurantId: targetRestaurantId,
+      isActive: true,
+      status: { $ne: "maintenance" },
+      capacity: { $gte: guests },
+    }).lean(),
+    Reservation.find({
+      restaurantId: targetRestaurantId,
+      date: validDate,
+      status: { $in: ["confirmed", "checked-in", "cancellation_pending"] },
+    }).lean(),
+  ]);
+
+  const conflicts = blockingReservations(reservations);
+
+  const availableTables = tables.filter((t) => {
+    return !hasReservationConflict({
+      tableId: t._id,
+      startMinutes,
+      endMinutes,
+      conflicts,
+    });
+  });
+
+  const formatted = availableTables.map((table) => {
+    const hourlyReservationRate =
+      table.hourlyReservationRate !== undefined ? table.hourlyReservationRate : 300;
+    const reservationFee = Math.round(hourlyReservationRate * durationHours);
+    return {
+      id: String(table._id),
+      _id: String(table._id),
+      tableNumber: table.tableNumber,
+      capacity: table.capacity,
+      location: table.location || "Indoor",
+      type: table.type || "Standard",
+      status: table.status,
+      isActive: table.isActive,
+      hourlyReservationRate,
+      reservationFee,
+      durationMinutes,
+      durationHours,
+    };
+  });
+
+  // Sort logically: capacity ascending (best fit), then tableNumber ascending
+  formatted.sort((a, b) => {
+    if (a.capacity !== b.capacity) return a.capacity - b.capacity;
+    return a.tableNumber.localeCompare(b.tableNumber, undefined, { numeric: true });
+  });
+
+  return {
+    data: formatted,
+    count: formatted.length,
+    date: validDate.toISOString().slice(0, 10),
+    startTime,
+    endTime,
+    partySize: guests,
+  };
+}
+
+/**
+ * GET /api/tables/slot-availability — Returns availability of all 30-min start and end slots.
+ * Grey out unavailable slots in the UI (cannot be selected).
+ */
+async function getSlotAvailability({
+  restaurantId,
+  date,
+  partySize = 2,
+  tableId,
+  startTime,
+}) {
+  let targetRestaurantId = restaurantId;
+  if (!targetRestaurantId) {
+    const defaultRestaurant = await Restaurant.findOne({ status: { $ne: "inactive" } }).lean();
+    if (defaultRestaurant) {
+      targetRestaurantId = defaultRestaurant._id;
+    } else {
+      throw new AppError("restaurantId is required.", 400, "validation_error");
+    }
+  }
+
+  const validDate = validateReservationDate(date);
+  const guests = Number(partySize) || 2;
+
+  // Find all active non-maintenance tables in this restaurant
+  const allActiveTables = await Table.find({
+    restaurantId: targetRestaurantId,
+    isActive: true,
+    status: { $ne: "maintenance" },
+  }).lean();
+
+  const maxCapacity = allActiveTables.reduce((max, t) => Math.max(max, t.capacity || 0), 0);
+
+  let tables = [];
+  if (tableId) {
+    // If a specific table was requested, check if it can accommodate the party size
+    tables = allActiveTables.filter(
+      (t) => String(t._id) === String(tableId) && t.capacity >= guests,
+    );
+  }
+
+  // If no tableId was provided OR the requested table cannot accommodate the party size (e.g. partySize changed to 5+),
+  // evaluate availability across all tables that fit this party size
+  if (tables.length === 0) {
+    tables = allActiveTables.filter((t) => t.capacity >= guests);
+  }
+
+  const reservations = await Reservation.find({
+    restaurantId: targetRestaurantId,
+    date: validDate,
+    status: { $in: ["confirmed", "checked-in", "cancellation_pending"] },
+  }).lean();
+
+  const conflicts = blockingReservations(reservations);
+
+  // Operating hours: 8:00 AM (480) to 10:00 PM (1320)
+  // Start slots: 480 to 1290 (9:30 PM) in 30-min steps
+  const startSlots = [];
+  for (let m = 480; m <= 1290; m += 30) {
+    const timeStr = minutesToTime(m);
+    const free = tables.filter(
+      (t) =>
+        !hasReservationConflict({
+          tableId: t._id,
+          startMinutes: m,
+          endMinutes: m + 30,
+          conflicts,
+        }),
+    );
+    startSlots.push({
+      time: timeStr,
+      timeLabel: formatTime(timeStr),
+      available: free.length > 0,
+      tableCount: free.length,
+    });
+  }
+
+  // End slots for selected startTime (from startTime + 30 to 1320)
+  const endSlots = [];
+  if (startTime) {
+    const startMin = timeToMinutes(startTime);
+    if (startMin !== null && startMin >= 480 && startMin < 1320) {
+      for (let m = startMin + 30; m <= 1320; m += 30) {
+        const timeStr = minutesToTime(m);
+        const free = tables.filter(
+          (t) =>
+            !hasReservationConflict({
+              tableId: t._id,
+              startMinutes: startMin,
+              endMinutes: m,
+              conflicts,
+            }),
+        );
+        endSlots.push({
+          time: timeStr,
+          timeLabel: formatTime(timeStr),
+          durationMinutes: m - startMin,
+          available: free.length > 0,
+          tableCount: free.length,
+        });
+      }
+    }
+  }
+
+  const payload = {
+    date: validDate.toISOString().slice(0, 10),
+    partySize: guests,
+    tableId: tableId ? String(tableId) : null,
+    maxCapacity,
+    hasTablesForPartySize: tables.length > 0,
+    startSlots,
+    endSlots,
+  };
+
+  return {
+    data: payload,
+    ...payload,
+  };
 }
 
 /**
@@ -222,6 +459,8 @@ async function replaceTables(restaurantId, tables) {
 module.exports = {
   createTable,
   listTables,
+  getAvailableTables,
+  getSlotAvailability,
   updateTable,
   updateTableStatus,
   replaceTables,

@@ -23,7 +23,7 @@ const Table = require("../src/models/Table");
 const Reservation = require("../src/models/Reservation");
 const QueueEntry = require("../src/models/QueueEntry");
 const Notification = require("../src/models/Notification");
-const { today, timeToMinutes, minutesToTime } = require("../src/utils/time");
+const { today, timeToMinutes, minutesToTime, combineDateAndTime } = require("../src/utils/time");
 
 const DEMO_PASSWORD = "Password123!";
 
@@ -114,14 +114,14 @@ const RESTAURANTS = [
       { name: "Filter Coffee", description: "Double-decoction, chicory blend", price: 280, category: "Drinks", isVegetarian: true },
     ],
     tables: [
-      { tableNumber: "A1", capacity: 2, location: "Ground" },
-      { tableNumber: "A2", capacity: 2, location: "Ground" },
-      { tableNumber: "A3", capacity: 4, location: "Ground" },
-      { tableNumber: "A4", capacity: 4, location: "Ground" },
-      { tableNumber: "A5", capacity: 6, location: "Upstairs" },
-      { tableNumber: "A6", capacity: 6, location: "Upstairs" },
-      { tableNumber: "A7", capacity: 4, location: "Upstairs" },
-      { tableNumber: "A8", capacity: 8, location: "Upstairs" },
+      { tableNumber: "A1", capacity: 2, hourlyReservationRate: 200, location: "Ground" },
+      { tableNumber: "A2", capacity: 2, hourlyReservationRate: 200, location: "Ground" },
+      { tableNumber: "A3", capacity: 4, hourlyReservationRate: 350, location: "Ground" },
+      { tableNumber: "A4", capacity: 4, hourlyReservationRate: 350, location: "Ground" },
+      { tableNumber: "A5", capacity: 6, hourlyReservationRate: 500, location: "Upstairs" },
+      { tableNumber: "A6", capacity: 6, hourlyReservationRate: 500, location: "Upstairs" },
+      { tableNumber: "A7", capacity: 4, hourlyReservationRate: 350, location: "Upstairs" },
+      { tableNumber: "A8", capacity: 8, hourlyReservationRate: 700, location: "Upstairs" },
     ],
   },
   {
@@ -157,11 +157,11 @@ const RESTAURANTS = [
       { name: "Caramel Waffle", description: "Warm waffle, palm-sugar caramel", price: 690, category: "Desserts", isVegetarian: true },
     ],
     tables: [
-      { tableNumber: "C1", capacity: 2, location: "Window" },
-      { tableNumber: "C2", capacity: 2, location: "Window" },
-      { tableNumber: "C3", capacity: 4, location: "Centre" },
-      { tableNumber: "C4", capacity: 4, location: "Centre" },
-      { tableNumber: "C5", capacity: 6, location: "Terrace" },
+      { tableNumber: "C1", capacity: 2, hourlyReservationRate: 150, location: "Window" },
+      { tableNumber: "C2", capacity: 2, hourlyReservationRate: 150, location: "Window" },
+      { tableNumber: "C3", capacity: 4, hourlyReservationRate: 250, location: "Centre" },
+      { tableNumber: "C4", capacity: 4, hourlyReservationRate: 250, location: "Centre" },
+      { tableNumber: "C5", capacity: 6, hourlyReservationRate: 400, location: "Terrace" },
     ],
   },
   {
@@ -197,12 +197,12 @@ const RESTAURANTS = [
       { name: "Cassava Chips", description: "Sea salt, chilli lime", price: 490, category: "Starters", isVegetarian: true },
     ],
     tables: [
-      { tableNumber: "N1", capacity: 2, location: "Promenade" },
-      { tableNumber: "N2", capacity: 2, location: "Promenade" },
-      { tableNumber: "N3", capacity: 4, location: "Promenade" },
-      { tableNumber: "N4", capacity: 4, location: "Indoor" },
-      { tableNumber: "N5", capacity: 6, location: "Indoor" },
-      { tableNumber: "N6", capacity: 12, location: "Private" },
+      { tableNumber: "N1", capacity: 2, hourlyReservationRate: 300, location: "Promenade" },
+      { tableNumber: "N2", capacity: 2, hourlyReservationRate: 300, location: "Promenade" },
+      { tableNumber: "N3", capacity: 4, hourlyReservationRate: 500, location: "Promenade" },
+      { tableNumber: "N4", capacity: 4, hourlyReservationRate: 500, location: "Indoor" },
+      { tableNumber: "N5", capacity: 6, hourlyReservationRate: 750, location: "Indoor" },
+      { tableNumber: "N6", capacity: 12, hourlyReservationRate: 1200, location: "Private" },
     ],
   },
 ];
@@ -341,6 +341,16 @@ async function seed() {
       const endTime = minutesToTime(
         timeToMinutes(plan.time) + palmyra.averageSeatingMinutes,
       );
+      const table = palmyraTables[plan.tableIndex] || palmyraTables[0];
+      const startMin = timeToMinutes(plan.time);
+      const endMin = timeToMinutes(endTime);
+      const durationMinutes = Math.max(30, endMin - startMin);
+      const durationHours = durationMinutes / 60;
+      const hourlyRate = table?.hourlyReservationRate || 350;
+      const reservationFee = Math.round(hourlyRate * durationHours);
+      const startDateTime = combineDateAndTime(date, plan.time);
+      const endDateTime = combineDateAndTime(date, endTime);
+
       // eslint-disable-next-line no-await-in-loop
       await Reservation.create({
         bookingId: `RES-${(counter += 7)}`,
@@ -348,11 +358,17 @@ async function seed() {
         // "My Bookings" is populated straight after seeding.
         userId: counter % 2 === 0 ? customer._id : customer._id,
         restaurantId: palmyra._id,
-        tableId: palmyraTables[plan.tableIndex]?._id || palmyraTables[0]._id,
+        tableId: table?._id,
         partySize: plan.partySize,
         date,
         time: plan.time,
+        startTime: plan.time,
         endTime,
+        durationMinutes,
+        hourlyRate,
+        reservationFee,
+        startDateTime,
+        endDateTime,
         status: plan.status,
         guestName: plan.guestName,
         checkedInAt: plan.status === "checked-in" ? new Date() : null,

@@ -13,20 +13,23 @@ const {
   waitBand,
 } = require("./time");
 
+const { TURNAROUND_BUFFER_MINUTES } = require("./time");
+
 /** Minutes a restaurant holds a table for one sitting. */
 function seatingDuration(restaurant) {
   return restaurant?.averageSeatingMinutes || 75;
 }
 
-/** Reservation documents → [{ tableId, start, end }] in minutes. */
+/** Reservation documents → [{ id, tableId, start, end, status }] in minutes. */
 function indexReservations(reservations) {
   return reservations.map((reservation) => {
     const doc = reservation.toObject ? reservation.toObject() : reservation;
     const start = timeToMinutes(doc.time);
     const rawEnd = doc.endTime ? timeToMinutes(doc.endTime) : null;
     const end =
-      rawEnd !== null ? rawEnd : (start === null ? null : start + 75);
+      rawEnd !== null ? rawEnd : (start === null ? null : start + 60);
     return {
+      id: String(doc._id || doc.id || ""),
       tableId: String(doc.tableId?._id || doc.tableId),
       start,
       end,
@@ -45,6 +48,27 @@ function blockingReservations(reservations) {
   );
 }
 
+/**
+ * Checks whether [startMinutes, endMinutes) conflicts with any blocking reservation on tableId,
+ * taking into account the 30-minute turnaround buffer (occupied until res.end + 30).
+ */
+function hasReservationConflict({
+  tableId,
+  startMinutes,
+  endMinutes,
+  conflicts,
+  excludeReservationId = null,
+}) {
+  return conflicts.some((c) => {
+    if (excludeReservationId && String(c.id) === String(excludeReservationId)) {
+      return false;
+    }
+    if (String(c.tableId) !== String(tableId)) return false;
+    const occupiedEnd = c.end + TURNAROUND_BUFFER_MINUTES;
+    return rangesOverlap(startMinutes, endMinutes, c.start, occupiedEnd);
+  });
+}
+
 /** Can `table` seat `partySize`? (Some slack over the exact party size.) */
 function tableFits(table, partySize) {
   if (table.status === "maintenance" || table.isActive === false) return false;
@@ -52,14 +76,16 @@ function tableFits(table, partySize) {
 }
 
 /**
- * Tables free for [start, start + seatingDuration).
+ * Tables free for [start, start + durationMinutes), respecting 30-min turnaround buffer.
  * @returns {Array} free tables
  */
 function freeTablesForSlot({ tables, partySize, startMinutes, conflicts, durationMinutes }) {
   const endMinutes = startMinutes + durationMinutes;
   const conflictTableIds = new Set(
     conflicts
-      .filter((c) => rangesOverlap(startMinutes, endMinutes, c.start, c.end))
+      .filter((c) =>
+        rangesOverlap(startMinutes, endMinutes, c.start, c.end + TURNAROUND_BUFFER_MINUTES),
+      )
       .map((c) => c.tableId),
   );
 
@@ -199,6 +225,7 @@ module.exports = {
   seatingDuration,
   indexReservations,
   blockingReservations,
+  hasReservationConflict,
   tableFits,
   freeTablesForSlot,
   generateTimeSlots,

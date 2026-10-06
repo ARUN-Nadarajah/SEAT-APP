@@ -46,11 +46,14 @@ function assertOptionalText(value, maxLength, fieldName) {
 
 /** POST /api/reservations */
 function validateCreateReservation(payload = {}) {
-  return {
+  const timeValue = payload.startTime || payload.time;
+  const time = assertTime(timeValue);
+  const result = {
     restaurantId: assertObjectId(payload.restaurantId, "restaurantId"),
     tableId: payload.tableId ? assertObjectId(payload.tableId, "tableId") : undefined,
     date: assertDate(payload.date),
-    time: assertTime(payload.time),
+    time,
+    startTime: payload.startTime ? assertTime(payload.startTime) : time,
     partySize: assertIntRange(payload.partySize, {
       min: 1,
       max: 20,
@@ -65,6 +68,10 @@ function validateCreateReservation(payload = {}) {
     ),
     notes: assertOptionalText(payload.notes, 300, "Notes"),
   };
+  if (payload.endTime !== undefined) {
+    result.endTime = assertTime(payload.endTime);
+  }
+  return result;
 }
 
 /** PUT /api/reservations/:id — all fields optional (FR07). */
@@ -74,8 +81,18 @@ function validateUpdateReservation(payload = {}) {
   if (payload.restaurantId !== undefined) {
     result.restaurantId = assertObjectId(payload.restaurantId, "restaurantId");
   }
+  if (payload.tableId !== undefined) {
+    result.tableId = assertObjectId(payload.tableId, "tableId");
+  }
   if (payload.date !== undefined) result.date = assertDate(payload.date);
   if (payload.time !== undefined) result.time = assertTime(payload.time);
+  if (payload.startTime !== undefined) {
+    result.startTime = assertTime(payload.startTime);
+    if (!result.time) result.time = result.startTime;
+  }
+  if (payload.endTime !== undefined) {
+    result.endTime = assertTime(payload.endTime);
+  }
   if (payload.partySize !== undefined) {
     result.partySize = assertIntRange(payload.partySize, {
       min: 1,

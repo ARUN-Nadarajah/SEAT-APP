@@ -17,6 +17,12 @@ const tableSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
+    hourlyReservationRate: {
+      type: Number,
+      required: true,
+      min: 0,
+      default: 300,
+    },
     location: {
       type: String,
       default: "",

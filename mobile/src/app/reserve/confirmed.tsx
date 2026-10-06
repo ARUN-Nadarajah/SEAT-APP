@@ -3,17 +3,28 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppText, Button, Card } from '@/components/ui';
+import { AppText, Button, Card, InfoBox } from '@/components/ui';
 import { colors, radius, spacing } from '@/theme';
 
 /**
- * Reservation Confirmed — "Your table is booked" (spec §5).
- * Offers the two expected exits: View my booking, Back to explore.
+ * Reservation Confirmed — "Your table is booked" (spec §5, Redesign Section 12).
+ * Displays reference, table details, fee snapshot, and turnaround buffer notice.
  */
 export default function ReservationConfirmedScreen() {
-  const { bookingId, reservationId } = useLocalSearchParams<{
+  const {
+    bookingId,
+    reservationId,
+    tableNumber,
+    reservationFee,
+    date,
+    timeRange,
+  } = useLocalSearchParams<{
     bookingId?: string;
     reservationId?: string;
+    tableNumber?: string;
+    reservationFee?: string;
+    date?: string;
+    timeRange?: string;
   }>();
 
   return (
@@ -24,11 +35,11 @@ export default function ReservationConfirmedScreen() {
         </View>
 
         <AppText variant="display" style={styles.title}>
-          Your table is booked
+          Your table is booked!
         </AppText>
         <AppText variant="secondary" style={styles.subtitle}>
-          We’ve held your table and sent a confirmation to your notifications.
-          Arrive within 15 minutes of your slot to keep it.
+          We’ve reserved your table and notified restaurant staff.
+          Please arrive on time to enjoy your full reservation period.
         </AppText>
 
         <Card style={styles.bookingCard}>
@@ -36,11 +47,49 @@ export default function ReservationConfirmedScreen() {
           <AppText variant="display" style={styles.bookingId}>
             {bookingId || 'RES-0000'}
           </AppText>
-          <View style={styles.dotRow}>
-            <View style={styles.dot} />
-            <AppText variant="secondary">Manage it any time from Bookings</AppText>
+
+          <View style={styles.metaDivider} />
+
+          <View style={styles.metaList}>
+            {tableNumber ? (
+              <View style={styles.metaRow}>
+                <AppText variant="secondary">Reserved Table:</AppText>
+                <AppText variant="label">Table {tableNumber}</AppText>
+              </View>
+            ) : null}
+
+            {timeRange ? (
+              <View style={styles.metaRow}>
+                <AppText variant="secondary">Time Range:</AppText>
+                <AppText variant="label">{timeRange}</AppText>
+              </View>
+            ) : null}
+
+            {date ? (
+              <View style={styles.metaRow}>
+                <AppText variant="secondary">Date:</AppText>
+                <AppText variant="label">{date}</AppText>
+              </View>
+            ) : null}
+
+            {reservationFee ? (
+              <View style={styles.metaRow}>
+                <AppText variant="secondary">Reservation Fee:</AppText>
+                <AppText variant="label" style={{ color: colors.primary }}>
+                  Rs. {reservationFee}
+                </AppText>
+              </View>
+            ) : null}
           </View>
         </Card>
+
+        <View style={styles.bufferNote}>
+          <InfoBox tone="info">
+            <AppText variant="caption">
+              A 30-minute turnaround buffer follows your reservation for cleaning and resetting.
+            </AppText>
+          </InfoBox>
+        </View>
 
         <View style={styles.actions}>
           <Button
@@ -70,23 +119,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing['2xl'],
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   badge: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: { textAlign: 'center' },
   subtitle: { textAlign: 'center', maxWidth: 330 },
-  bookingCard: { alignItems: 'center', gap: spacing.xs, width: '100%', maxWidth: 380 },
+  bookingCard: { width: '100%', maxWidth: 380, alignItems: 'center', gap: spacing.xs },
   bookingId: { letterSpacing: 2, color: colors.primary },
-  dotRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm },
-  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.accent },
-  actions: { width: '100%', maxWidth: 380, gap: spacing.sm, marginTop: spacing.md },
+  metaDivider: {
+    width: '100%',
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: spacing.sm,
+  },
+  metaList: { width: '100%', gap: spacing.xs },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  bufferNote: { width: '100%', maxWidth: 380 },
+  actions: { width: '100%', maxWidth: 380, gap: spacing.sm, marginTop: spacing.sm },
 });
 
 export const confirmedRadius = radius.xl;

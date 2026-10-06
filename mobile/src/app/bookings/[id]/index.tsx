@@ -99,6 +99,20 @@ export default function ReservationDetailsScreen() {
     month: 'long',
   });
 
+  const reservationDateTime = booking.startDateTime
+    ? new Date(booking.startDateTime)
+    : new Date(`${booking.date.slice(0, 10)}T${booking.startTime || booking.time || '12:00'}:00`);
+  const hoursUntilReservation = (reservationDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
+  const isWithin24Hours = hoursUntilReservation < 24 && hoursUntilReservation > 0;
+
+  const timeRangeLabel = booking.endTime
+    ? `${formatTime(booking.startTime || booking.time)} – ${formatTime(booking.endTime)}`
+    : formatTime(booking.time);
+
+  const durationLabel = booking.durationMinutes
+    ? `${Math.floor(booking.durationMinutes / 60)} hr${Math.floor(booking.durationMinutes / 60) > 1 ? 's' : ''}${booking.durationMinutes % 60 ? ` ${booking.durationMinutes % 60} min` : ''}`
+    : '';
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <Header />
@@ -135,7 +149,10 @@ export default function ReservationDetailsScreen() {
 
           <View style={styles.detailList}>
             <Detail icon="calendar-outline" label="Date" value={dateLabel} />
-            <Detail icon="time-outline" label="Time" value={formatTime(booking.time)} />
+            <Detail icon="time-outline" label="Time" value={timeRangeLabel} />
+            {durationLabel ? (
+              <Detail icon="hourglass-outline" label="Duration" value={durationLabel} />
+            ) : null}
             <Detail
               icon="people-outline"
               label="Party"
@@ -144,13 +161,49 @@ export default function ReservationDetailsScreen() {
             <Detail
               icon="grid-outline"
               label="Table"
-              value={booking.tableNumber || 'Assigned on arrival'}
+              value={
+                booking.tableNumber
+                  ? `Table ${booking.tableNumber}${booking.tableCapacity ? ` (${booking.tableCapacity} seats)` : ''}`
+                  : 'Assigned on arrival'
+              }
             />
+            {booking.reservationFee !== undefined ? (
+              <Detail
+                icon="wallet-outline"
+                label="Fee"
+                value={`Rs. ${booking.reservationFee}${booking.hourlyRate ? ` (Rs. ${booking.hourlyRate}/hr)` : ''}`}
+              />
+            ) : null}
             {booking.specialRequest ? (
               <Detail icon="chatbubble-ellipses-outline" label="Note" value={booking.specialRequest} />
             ) : null}
           </View>
         </Card>
+
+        {/* 30-min buffer notice */}
+        <InfoBox tone="info">
+          <AppText variant="caption">
+            Includes a 30-minute preparation buffer after your reservation for table sanitisation and resetting.
+          </AppText>
+        </InfoBox>
+
+        {/* Cancellation deadline notice */}
+        {!closed && !isPendingCancellation ? (
+          isWithin24Hours ? (
+            <InfoBox tone="warning">
+              <AppText variant="label">Within 24 hours of reservation</AppText>
+              <AppText variant="secondary">
+                Cancellation deadline (24 hours in advance) has passed. Requests submitted now are subject to strict staff review.
+              </AppText>
+            </InfoBox>
+          ) : (
+            <InfoBox tone="info">
+              <AppText variant="caption">
+                Cancellations must be requested at least 24 hours before your booking time and require staff review.
+              </AppText>
+            </InfoBox>
+          )
+        ) : null}
 
         {booking.checkedInAt ? (
           <InfoBox tone="success">

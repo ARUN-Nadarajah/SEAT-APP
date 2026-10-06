@@ -16,22 +16,42 @@ import { apiErrorMessage, createBooking, fetchRestaurant } from '@/services/api'
 import { parseSlotUnavailable } from '@/services/api/reservations.api';
 import { colors, radius, spacing } from '@/theme';
 
-/**
- * Review Reservation — "One last look" (spec §5, FR02 step 3 of 3).
- *
- * Carries a courtesy note about cancelling (spec §9: error prevention) and
- * tells the user their existing booking stays safe until they save.
- */
+function minutesToTimeStr(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function timeStrToMinutes(time: string): number {
+  const [h, m] = (time || '').split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+export function formatTime(time?: string): string {
+  if (!time) return '';
+  const [hours, minutes] = time.split(':').map(Number);
+  if (Number.isNaN(hours)) return time;
+  const meridiem = hours >= 12 ? 'PM' : 'AM';
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes ?? 0).padStart(2, '0')} ${meridiem}`;
+}
+
 export default function ReviewScreen() {
   const params = useLocalSearchParams<{
     restaurantId: string;
     restaurantName?: string;
     partySize: string;
     date: string;
-    time: string;
+    time?: string;
+    startTime?: string;
+    endTime?: string;
     specialRequest?: string;
     tableId?: string;
     tableNumber?: string;
+    tableCapacity?: string;
+    hourlyRate?: string;
+    reservationFee?: string;
+    durationMinutes?: string;
   }>();
   const { showToast } = useFeedback();
 
@@ -40,6 +60,23 @@ export default function ReviewScreen() {
   const [alternatives, setAlternatives] = useState<{ time: string; label: string }[]>([]);
 
   const partySize = Number(params.partySize) || 2;
+  const startTime = params.startTime || params.time || '12:00';
+  const endTime = params.endTime || '13:30';
+
+  const startMin = timeStrToMinutes(startTime);
+  const endMin = timeStrToMinutes(endTime);
+  const durationMin = Math.max(30, endMin - startMin);
+  const durationHours = Math.floor(durationMin / 60);
+  const remainingMins = durationMin % 60;
+  const durationLabel =
+    durationHours > 0 && remainingMins > 0
+      ? `${durationHours} hr ${remainingMins} min`
+      : durationHours > 0
+        ? `${durationHours} hour${durationHours > 1 ? 's' : ''}`
+        : `${remainingMins} minutes`;
+
+  const bufferEndMin = endMin + 30;
+  const bufferEndTimeStr = minutesToTimeStr(bufferEndMin);
 
   const restaurantQuery = useApiQuery(
     ['restaurant', params.restaurantId],
@@ -58,7 +95,9 @@ export default function ReviewScreen() {
       const result = await createBooking({
         restaurantId: params.restaurantId,
         date: params.date,
-        time: params.time,
+        startTime,
+        endTime,
+        time: startTime,
         partySize,
         specialRequest: params.specialRequest || undefined,
         tableId: params.tableId || undefined,
@@ -69,6 +108,10 @@ export default function ReviewScreen() {
         params: {
           bookingId: result.data?.reservation.bookingId ?? '',
           reservationId: result.data?.reservation.id ?? '',
+          tableNumber: params.tableNumber ?? '',
+          reservationFee: params.reservationFee ?? '',
+          date: params.date,
+          timeRange: `${formatTime(startTime)} – ${formatTime(endTime)}`,
         },
       });
     } catch (caught) {
@@ -110,8 +153,8 @@ export default function ReviewScreen() {
           <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
         </Pressable>
         <View style={styles.headerTitle}>
-          <AppText variant="label">One last look</AppText>
-          <AppText variant="caption">Step 3 of 3 · confirm</AppText>
+          <AppText variant="label">Review Reservation</AppText>
+          <AppText variant="caption">Step 2 of 2 · Confirm & Pay</AppText>
         </View>
         <View style={styles.back} />
       </View>
@@ -123,29 +166,58 @@ export default function ReviewScreen() {
 
           <View style={styles.summary}>
             <Row icon="calendar-outline" label="Date" value={dateLabel} />
-            <Row icon="time-outline" label="Time" value={formatTime(params.time)} />
+            <Row
+              icon="time-outline"
+              label="Time Range"
+              value={`${formatTime(startTime)} – ${formatTime(endTime)}`}
+            />
+            <Row icon="hourglass-outline" label="Duration" value={durationLabel} />
             <Row
               icon="people-outline"
-              label="Party size"
+              label="Party Size"
               value={`${partySize} guest${partySize === 1 ? '' : 's'}`}
             />
             <Row
               icon="grid-outline"
               label="Table"
-              value={params.tableNumber ? `Table ${params.tableNumber}` : 'Assigned when you arrive'}
+              value={
+                params.tableNumber
+                  ? `Table ${params.tableNumber}${params.tableCapacity ? ` (${params.tableCapacity} seats)` : ''}`
+                  : 'Selected Table'
+              }
+            />
+            <Row
+              icon="pricetag-outline"
+              label="Hourly Rate"
+              value={`Rs. ${params.hourlyRate || 300} / hour`}
+            />
+            <Row
+              icon="wallet-outline"
+              label="Total Fee"
+              value={`Rs. ${params.reservationFee || 0}`}
+              highlight
             />
             {params.specialRequest ? (
-              <Row icon="chatbubble-ellipses-outline" label="Note" value={params.specialRequest} />
+              <Row icon="chatbubble-ellipses-outline" label="Special Request" value={params.specialRequest} />
             ) : null}
           </View>
         </Card>
 
-        <InfoBox tone="warning">
-          <AppText variant="label">A small courtesy</AppText>
+        {/* 30-min turnaround buffer notice (Section 5, 11) */}
+        <InfoBox tone="info">
+          <AppText variant="label">Turnaround Buffer Included</AppText>
           <AppText variant="secondary">
-            Plans change — if you can’t make it, please cancel so another party
-            can take the table. You can change or cancel any time from
-            Bookings; nothing is final until you confirm here.
+            A mandatory 30-minute preparation buffer ({formatTime(endTime)} – {formatTime(bufferEndTimeStr)}) is
+            automatically blocked after your reservation for table sanitisation and resetting. You are NOT charged for this buffer.
+          </AppText>
+        </InfoBox>
+
+        {/* Cancellation Policy (Section 11) */}
+        <InfoBox tone="warning">
+          <AppText variant="label">Cancellation Policy</AppText>
+          <AppText variant="secondary">
+            Cancellations must be requested at least 24 hours prior to reservation time and require staff review.
+            Late cancellations within 24 hours or no-shows are subject to review.
           </AppText>
         </InfoBox>
 
@@ -155,15 +227,14 @@ export default function ReviewScreen() {
             {alternatives.length > 0 ? (
               <>
                 <AppText variant="secondary">
-                  Your existing booking stays safe until you save — pick one of
-                  these instead:
+                  That slot was just booked. Pick one of these alternatives instead:
                 </AppText>
                 <View style={styles.altRow}>
                   {alternatives.map((slot) => (
                     <Pressable
                       key={slot.time}
                       onPress={() => {
-                        router.setParams({ time: slot.time });
+                        router.setParams({ startTime: slot.time, time: slot.time });
                         setError(null);
                         setAlternatives([]);
                       }}
@@ -181,7 +252,7 @@ export default function ReviewScreen() {
         ) : null}
 
         <Button
-          label="Confirm reservation"
+          label={`Confirm reservation · Rs. ${params.reservationFee || 0}`}
           onPress={onConfirm}
           loading={submitting}
           testID="confirm-reservation"
@@ -196,10 +267,12 @@ function Row({
   icon,
   label,
   value,
+  highlight = false,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value: string;
+  highlight?: boolean;
 }) {
   return (
     <View style={styles.row}>
@@ -207,20 +280,14 @@ function Row({
       <AppText variant="secondary" style={styles.rowLabel}>
         {label}
       </AppText>
-      <AppText variant="bodyMedium" style={styles.rowValue}>
+      <AppText
+        variant={highlight ? 'heading' : 'bodyMedium'}
+        style={[styles.rowValue, highlight && styles.rowValueHighlight]}
+      >
         {value}
       </AppText>
     </View>
   );
-}
-
-export function formatTime(time?: string): string {
-  if (!time) return '';
-  const [hours, minutes] = time.split(':').map(Number);
-  if (Number.isNaN(hours)) return time;
-  const meridiem = hours >= 12 ? 'PM' : 'AM';
-  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
-  return `${hour12}:${String(minutes ?? 0).padStart(2, '0')} ${meridiem}`;
 }
 
 const styles = StyleSheet.create({
@@ -248,8 +315,9 @@ const styles = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing['3xl'], gap: spacing.lg },
   summary: { gap: spacing.md, marginTop: spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  rowLabel: { width: 92 },
+  rowLabel: { width: 110 },
   rowValue: { flex: 1, textAlign: 'right' },
+  rowValueHighlight: { color: colors.primary, fontSize: 18 },
   altRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   altChip: {
     paddingHorizontal: spacing.lg,

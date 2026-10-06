@@ -32,6 +32,15 @@ function validateTableInput(payload = {}) {
     fieldName: "capacity",
   });
 
+  let hourlyReservationRate = 300;
+  if (payload.hourlyReservationRate !== undefined) {
+    const rate = Number(payload.hourlyReservationRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new AppError("hourlyReservationRate must be a positive number.", 400, "validation_error");
+    }
+    hourlyReservationRate = rate;
+  }
+
   const location = String(payload.location ?? "").trim();
   const type = String(payload.type ?? "Standard").trim() || "Standard";
   const status = normaliseStatus(payload.status ?? "available");
@@ -40,6 +49,7 @@ function validateTableInput(payload = {}) {
     restaurantId,
     tableNumber,
     capacity,
+    hourlyReservationRate,
     location,
     type,
     status,
@@ -63,6 +73,14 @@ function validateTableUpdate(payload = {}) {
       max: 20,
       fieldName: "capacity",
     });
+  }
+
+  if (payload.hourlyReservationRate !== undefined) {
+    const rate = Number(payload.hourlyReservationRate);
+    if (!Number.isFinite(rate) || rate < 0) {
+      throw new AppError("hourlyReservationRate must be a positive number.", 400, "validation_error");
+    }
+    next.hourlyReservationRate = rate;
   }
 
   if (payload.location !== undefined) {
@@ -103,13 +121,80 @@ function validateTableQuery(query = {}) {
   if (query.date) {
     result.date = String(query.date);
   }
+  if (query.startTime || query.time) {
+    result.startTime = String(query.startTime || query.time);
+  }
+  if (query.endTime) {
+    result.endTime = String(query.endTime);
+  }
+  if (query.partySize) {
+    result.partySize = Number(query.partySize);
+  }
   return result;
+}
+
+/** GET /api/tables/available?restaurantId=&date=&startTime=&endTime=&partySize= */
+function validateAvailableTablesQuery(query = {}) {
+  const { validateReservationDate, validateReservationTimeRange } = require("../utils/time");
+
+  const restaurantId = query.restaurantId ? assertObjectId(query.restaurantId, "restaurantId") : undefined;
+  const date = validateReservationDate(query.date);
+  const startTime = query.startTime || query.time;
+  const endTime = query.endTime;
+  const { startMinutes, endMinutes, durationMinutes, durationHours } =
+    validateReservationTimeRange(startTime, endTime);
+
+  const partySize = assertIntRange(query.partySize, {
+    min: 1,
+    max: 20,
+    fieldName: "Party size",
+  });
+
+  return {
+    restaurantId,
+    date,
+    startTime: query.startTime || query.time,
+    endTime,
+    partySize,
+    startMinutes,
+    endMinutes,
+    durationMinutes,
+    durationHours,
+  };
+}
+
+/** GET /api/tables/slot-availability?restaurantId=&date=&partySize=&tableId=&startTime= */
+function validateSlotAvailabilityQuery(query = {}) {
+  const { validateReservationDate } = require("../utils/time");
+  const { to24h } = require("../middleware/validation.middleware");
+
+  const restaurantId = query.restaurantId ? assertObjectId(query.restaurantId, "restaurantId") : undefined;
+  const date = validateReservationDate(query.date);
+  const partySize = query.partySize
+    ? assertIntRange(query.partySize, {
+        min: 1,
+        max: 20,
+        fieldName: "Party size",
+      })
+    : 2;
+  const tableId = query.tableId ? assertObjectId(query.tableId, "tableId") : undefined;
+  const startTime = query.startTime || query.time ? to24h(query.startTime || query.time) : undefined;
+
+  return {
+    restaurantId,
+    date,
+    partySize,
+    tableId,
+    startTime,
+  };
 }
 
 module.exports = {
   TABLE_STATUSES,
   validateTableStatus,
   validateTableQuery,
+  validateAvailableTablesQuery,
+  validateSlotAvailabilityQuery,
   validateTableInput,
   validateTableUpdate,
 };

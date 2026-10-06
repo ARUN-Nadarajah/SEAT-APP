@@ -2,6 +2,8 @@ const express = require("express");
 
 const {
   getTables,
+  getAvailableTables,
+  getSlotAvailability,
   createTables,
   updateTable,
   updateTableStatus,
@@ -10,6 +12,12 @@ const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
 
 const router = express.Router();
+
+// Dynamic available tables for reservation (Section 6)
+router.get("/available", getAvailableTables);
+
+// Slot availability to grey out unavailable time slots
+router.get("/slot-availability", getSlotAvailability);
 
 // Staff floor plan (FR08) and customer table browsing
 router.get("/", getTables);

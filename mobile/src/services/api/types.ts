@@ -129,9 +129,16 @@ export type Booking = {
   partySize: number;
   date: string;
   time: string;
+  startTime?: string;
   endTime: string;
+  durationMinutes?: number;
+  hourlyRate?: number;
+  reservationFee?: number;
+  startDateTime?: string;
+  endDateTime?: string;
   guestName: string;
   specialRequest: string;
+  tableId?: string;
   tableNumber: string;
   tableCapacity: number | null;
   restaurant: {
@@ -252,6 +259,10 @@ export type Table = {
   image?: string;
   statusChangedAt?: string;
   isActive: boolean;
+  hourlyReservationRate?: number;
+  reservationFee?: number;
+  durationMinutes?: number;
+  durationHours?: number;
 };
 
 export type TableSummary = {

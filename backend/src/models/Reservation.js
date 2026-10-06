@@ -52,6 +52,29 @@ const reservationSchema = new mongoose.Schema(
       match: /^([01]\d|2[0-3]):[0-5]\d$/,
       default: "",
     },
+    durationMinutes: {
+      type: Number,
+      default: 60,
+      min: 30,
+    },
+    hourlyRate: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    reservationFee: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    startDateTime: {
+      type: Date,
+      default: null,
+    },
+    endDateTime: {
+      type: Date,
+      default: null,
+    },
     status: {
       type: String,
       required: true,
@@ -136,7 +159,13 @@ reservationSchema.methods.toPublic = function toPublic() {
     partySize: this.partySize,
     date: this.date,
     time: this.time,
+    startTime: this.time,
     endTime: this.endTime,
+    durationMinutes: this.durationMinutes,
+    hourlyRate: this.hourlyRate,
+    reservationFee: this.reservationFee,
+    startDateTime: this.startDateTime,
+    endDateTime: this.endDateTime,
     status: this.status,
     guestName: this.guestName,
     specialRequest: this.specialRequest,
