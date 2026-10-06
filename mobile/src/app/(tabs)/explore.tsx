@@ -36,6 +36,7 @@ import {
   type Table,
 } from '@/services/api';
 import { onQueueUpdated, onTableUpdated } from '@/services/realtime/socket';
+import { setPendingQueueRestaurant } from '@/services/queue-navigation';
 import { colors, radius, shadow, spacing } from '@/theme';
 
 type AvailabilityFilter = 'all' | 'available' | 'reserved';
@@ -228,10 +229,8 @@ export default function ExploreScreen() {
       showToast('No restaurants are running a virtual queue right now.', 'info');
       return;
     }
-    router.push({
-      pathname: '/queue/join',
-      params: { restaurantId: target.id },
-    });
+    setPendingQueueRestaurant(target.id);
+    router.push('/queue/join');
   }
 
   function onSelectTable(table: Table) {

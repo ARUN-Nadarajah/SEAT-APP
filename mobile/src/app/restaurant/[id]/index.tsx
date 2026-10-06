@@ -17,6 +17,7 @@ import {
 import { useApiQuery } from '@/hooks/useApi';
 import { apiErrorMessage, fetchRestaurant } from '@/services/api';
 import { colors, radius, shadow, spacing } from '@/theme';
+import { setPendingQueueRestaurant } from '@/services/queue-navigation';
 
 /**
  * Restaurant Details (spec §5 + FR03).
@@ -177,12 +178,10 @@ export default function RestaurantDetailsScreen() {
 
           {/* Secondary queue action — high contrast so it is never missed. */}
           <Pressable
-            onPress={() =>
-              router.push({
-                pathname: '/queue/join',
-                params: { restaurantId: restaurant.id },
-              })
-            }
+            onPress={() => {
+              setPendingQueueRestaurant(restaurant.id);
+              router.push('/queue/join');
+            }}
             style={styles.queueButton}
             accessibilityRole="button"
             accessibilityLabel={`Join the queue, ${waitLabel} estimated wait`}

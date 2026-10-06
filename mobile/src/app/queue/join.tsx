@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ import {
   joinQueue,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
+import { consumePendingQueueRestaurant } from '@/services/queue-navigation';
 
 const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8];
 
@@ -35,9 +36,9 @@ const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8];
  * plainly that this is a waiting list rather than a fixed-time booking.
  */
 export default function JoinQueueScreen() {
-  const params = useLocalSearchParams<{ restaurantId?: string }>();
   const { user } = useAuth();
   const { showToast } = useFeedback();
+  const [selectedRestaurantId] = useState(() => consumePendingQueueRestaurant());
 
   const defaultVenueQuery = useApiQuery(
     ['default-venue-queue'],
@@ -45,10 +46,10 @@ export default function JoinQueueScreen() {
       const all = await fetchRestaurants({ limit: 1 });
       return all.data?.[0] ?? null;
     },
-    { enabled: !params.restaurantId },
+    { enabled: !selectedRestaurantId },
   );
 
-  const restaurantId = params.restaurantId || defaultVenueQuery.data?.id || '';
+  const restaurantId = selectedRestaurantId || defaultVenueQuery.data?.id || '';
 
   const [partySize, setPartySize] = useState(2);
   const [guestName, setGuestName] = useState(user?.name ?? '');
