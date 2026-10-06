@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import { useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,6 +13,7 @@ import {
   useFeedback,
 } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth-context';
+import { useLogout } from '@/hooks/useLogout';
 import { apiErrorMessage, updateProfile } from '@/services/api';
 import { colors, spacing } from '@/theme';
 
@@ -31,7 +31,8 @@ const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
  * toggle a test user expected), privacy notice, help and logout.
  */
 export default function ProfileScreen() {
-  const { user, logout, isLoading: authLoading } = useAuth();
+  const { user } = useAuth();
+  const { confirmLogout, loggingOut } = useLogout();
   const { showToast } = useFeedback();
 
   const [name, setName] = useState(user?.name ?? '');
@@ -71,8 +72,8 @@ export default function ProfileScreen() {
   }
 
   async function onLogout() {
-    await logout();
-    router.replace('/(auth)/login');
+    // Shared flow: confirm → clear tokens → drop the socket → Login.
+    await confirmLogout();
   }
 
   async function onContactSupport() {
@@ -182,7 +183,7 @@ export default function ProfileScreen() {
           label="Log out"
           variant="danger"
           onPress={onLogout}
-          loading={authLoading}
+          loading={loggingOut}
           accessibilityLabel="Log out of your account"
         />
 

@@ -40,6 +40,12 @@ export default function ArrivalConfirmedScreen() {
         </Card>
 
         <View style={styles.actions}>
+          {/* TODO(ordering): wire "Order food" to the ordering flow in a later step. */}
+          <Button
+            label="Order food"
+            disabled
+            accessibilityLabel="Order food, coming soon"
+          />
           <Button label="Back to explore" onPress={() => router.replace('/(tabs)/explore')} />
           <Button
             label="View my bookings"

@@ -26,6 +26,7 @@ import {
   useFeedback,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
+import { useLogout } from '@/hooks/useLogout';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
@@ -81,7 +82,8 @@ const TABLE_STATUS_OPTIONS = ['available', 'reserved', 'occupied'] as const;
  * reservations with search + check-in, and the live queue with call-next.
  */
 export default function StaffDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { confirmLogout, loggingOut } = useLogout();
   const { showToast } = useFeedback();
   const [panel, setPanel] = useState<Panel>('tables');
   const [refreshing, setRefreshing] = useState(false);
@@ -512,9 +514,8 @@ export default function StaffDashboardScreen() {
         <View style={styles.headerActions}>
           <Pressable
             style={styles.logoutButton}
-            onPress={async () => {
-              await logout();
-              router.replace('/(auth)/login');
+            onPress={() => {
+              confirmLogout();
             }}
             accessibilityRole="button"
             accessibilityLabel="Log out"
@@ -1129,9 +1130,14 @@ export default function StaffDashboardScreen() {
 
       <View style={styles.footer}>
         <Button
-          label="Switch account"
-          variant="ghost"
-          onPress={() => router.push('/(auth)/login')}
+          label="Log out"
+          variant="dangerOutline"
+          onPress={() => {
+            confirmLogout();
+          }}
+          loading={loggingOut}
+          accessibilityLabel="Log out of SEAT"
+          testID="staff-logout"
         />
       </View>
 
