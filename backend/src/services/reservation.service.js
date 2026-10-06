@@ -8,6 +8,7 @@ const User = require("../models/User");
 const { AppError } = require("../utils/errors");
 const { notify, notifyRestaurantStaff } = require("./notification.service");
 const { notifyEligibleOffers } = require("./offer.service");
+const receiptService = require("./receipt.service");
 const {
   normalizeDate,
   today,
@@ -286,6 +287,13 @@ async function createReservation(userId, payload) {
       route: `/staff/reservations/${reservation._id}`,
       data: { reservationId: String(reservation._id), bookingId },
     });
+
+    // In compliance with E-Receipt system: Generate initial receipt snapshot (v1)
+    try {
+      await receiptService.generateReceipt(reservation._id);
+    } catch (err) {
+      console.error("[receipt] Failed to generate initial receipt:", err.message);
+    }
 
     // NOTE: In compliance with Section 1: Do NOT permanently set Table status to 'reserved'!
     // Physical table availability is date + time-range based.
@@ -615,6 +623,13 @@ async function updateReservation(id, requestingUser, payload) {
   }
   await reservation.save();
 
+  // In compliance with E-Receipt system: Generate revision snapshot (v2, v3...)
+  try {
+    await receiptService.createRevisionReceipt(reservation._id);
+  } catch (err) {
+    console.error("[receipt] Failed to create revision receipt:", err.message);
+  }
+
   const updated = await Reservation.findById(id)
     .populate("restaurantId", "name cuisine images address city rating")
     .populate("tableId", "tableNumber capacity hourlyReservationRate")
@@ -682,6 +697,18 @@ async function requestCancellation(id, requestingUser, rawReason) {
   reservation.cancellationRequestedAt = new Date();
   await reservation.save();
 
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "cancellation_pending",
+      cancellationDetails: {
+        requestedAt: reservation.cancellationRequestedAt,
+        reason: reservation.cancellationReason,
+      },
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync cancellation_pending:", err.message);
+  }
+
   // Note: Do NOT release the table while cancellation is pending.
   // The table remains held and blocking for availability.
 
@@ -747,6 +774,18 @@ async function cancelReservation(id, requestingUser, reason = "") {
   reservation.cancellationReason = String(reason || "").trim();
   await reservation.save();
 
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "cancelled",
+      cancellationDetails: {
+        requestedAt: reservation.cancelledAt,
+        reason: reservation.cancellationReason,
+      },
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync cancelled status:", err.message);
+  }
+
   // Release the floor plan slot again (FR08).
   await Table.findOneAndUpdate(
     { _id: reservation.tableId, status: "reserved" },
@@ -809,6 +848,18 @@ async function approveCancellation(id, staffUser) {
   reservation.cancellationReviewedAt = new Date();
   await reservation.save();
 
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "cancelled",
+      cancellationDetails: {
+        reviewedAt: reservation.cancellationReviewedAt,
+        reviewComment: reservation.cancellationReviewComment,
+      },
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync approved cancellation:", err.message);
+  }
+
   await notify({
     userId: reservation.userId,
     type: "reservation",
@@ -865,6 +916,18 @@ async function rejectCancellation(id, staffUser, rawComment = "") {
   reservation.cancellationReviewedAt = new Date();
   reservation.cancellationReviewComment = comment;
   await reservation.save();
+
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "confirmed",
+      cancellationDetails: {
+        reviewedAt: reservation.cancellationReviewedAt,
+        reviewComment: reservation.cancellationReviewComment,
+      },
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync rejected cancellation:", err.message);
+  }
 
   await notify({
     userId: reservation.userId,
@@ -954,6 +1017,14 @@ async function checkIn(id, restaurantId) {
   reservation.checkedInAt = new Date();
   await reservation.save();
 
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "checked-in",
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync checked-in:", err.message);
+  }
+
   await Table.findByIdAndUpdate(reservation.tableId, {
     status: "occupied",
     statusChangedAt: new Date(),
@@ -978,6 +1049,14 @@ async function markNoShow(id, restaurantId) {
 
   reservation.status = "no-show";
   await reservation.save();
+
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "no-show",
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync no-show:", err.message);
+  }
 
   await Table.findOneAndUpdate(
     { _id: reservation.tableId, status: "reserved" },
@@ -1006,6 +1085,14 @@ async function completeReservation(id, restaurantId) {
   reservation.status = "completed";
   reservation.completedAt = new Date();
   await reservation.save();
+
+  try {
+    await receiptService.syncReceiptStatus(reservation._id, {
+      reservationStatus: "completed",
+    });
+  } catch (err) {
+    console.error("[receipt] Failed to sync completed:", err.message);
+  }
 
   await Table.findByIdAndUpdate(reservation.tableId, {
     status: "available",

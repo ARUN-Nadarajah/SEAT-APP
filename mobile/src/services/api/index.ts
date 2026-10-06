@@ -14,3 +14,4 @@ export * from './queue.api';
 export * from './staff.api';
 export * from './offers.api';
 export * from './orders.api';
+export * from './receipts.api';

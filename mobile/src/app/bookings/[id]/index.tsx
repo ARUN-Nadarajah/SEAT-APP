@@ -242,6 +242,19 @@ export default function ReservationDetailsScreen() {
           </InfoBox>
         ) : null}
 
+        {/* View Receipt Document */}
+        <Button
+          label="View Reservation Receipt"
+          variant="secondary"
+          onPress={() =>
+            router.push({
+              pathname: '/bookings/[id]/receipt' as any,
+              params: { id: booking.id },
+            })
+          }
+          testID="view-receipt"
+        />
+
         {/* FR07 — change and cancel actions */}
         {isPendingCancellation ? (
           <View style={styles.actions}>
@@ -357,10 +370,18 @@ function Detail({
 }
 
 function Header() {
+  function onBack() {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(tabs)/bookings');
+    }
+  }
+
   return (
     <View style={styles.header}>
       <Pressable
-        onPress={() => router.back()}
+        onPress={onBack}
         style={styles.back}
         hitSlop={10}
         accessibilityRole="button"

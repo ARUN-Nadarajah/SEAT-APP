@@ -6,6 +6,7 @@ const managerRoutes = require("./manager.routes");
 const notificationRoutes = require("./notification.routes");
 const orderRoutes = require("./order.routes");
 const queueRoutes = require("./queue.routes");
+const receiptRoutes = require("./receipt.routes");
 const reservationRoutes = require("./reservation.routes");
 const restaurantRoutes = require("./restaurant.routes");
 const tableRoutes = require("./table.routes");
@@ -24,6 +25,7 @@ router.get("/health", (req, res) => {
 router.use("/auth", authRoutes);
 router.use("/restaurants", restaurantRoutes);
 router.use("/reservations", reservationRoutes);
+router.use("/receipts", receiptRoutes);
 router.use("/queue", queueRoutes);
 router.use("/tables", tableRoutes);
 router.use("/notifications", notificationRoutes);

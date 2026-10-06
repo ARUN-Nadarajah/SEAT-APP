@@ -14,6 +14,7 @@ const {
   approveCancellation,
   rejectCancellation,
 } = require("../controllers/reservation.controller");
+const { getReservationReceipt } = require("../controllers/receipt.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
 
@@ -30,6 +31,7 @@ router.get("/staff", requireRole("staff", "manager"), getStaffReservations);
 router.get("/", getReservations);
 router.post("/", createReservation);
 router.get("/:id", getReservationById);
+router.get("/:id/receipt", getReservationReceipt);
 router.put("/:id", updateReservation);
 router.post("/:id/cancel-request", requestCancellation);
 router.delete("/:id", cancelReservation);

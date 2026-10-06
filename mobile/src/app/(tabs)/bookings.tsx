@@ -142,12 +142,22 @@ function BookingCard({ booking }: { booking: Booking }) {
         </View>
       </View>
 
-      <Button
-        label="Manage reservation"
-        variant="secondary"
-        onPress={() => router.push(`/bookings/${booking.id}`)}
-        accessibilityLabel={`Manage reservation ${booking.bookingId}`}
-      />
+      <View style={styles.cardActions}>
+        <Button
+          label="Receipt"
+          variant="ghost"
+          onPress={() => router.push(`/bookings/${booking.id}/receipt` as any)}
+          accessibilityLabel={`View receipt for ${booking.bookingId}`}
+          style={styles.cardReceiptBtn}
+        />
+        <Button
+          label="Manage reservation"
+          variant="secondary"
+          onPress={() => router.push(`/bookings/${booking.id}`)}
+          accessibilityLabel={`Manage reservation ${booking.bookingId}`}
+          style={styles.cardManageBtn}
+        />
+      </View>
     </Card>
   );
 }
@@ -190,5 +200,8 @@ const styles = StyleSheet.create({
   cardTitleBlock: { flex: 1, gap: 2 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  cardActions: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+  cardReceiptBtn: { flex: 1 },
+  cardManageBtn: { flex: 2 },
   emptyAction: { marginTop: spacing.md, minWidth: 200 },
 });

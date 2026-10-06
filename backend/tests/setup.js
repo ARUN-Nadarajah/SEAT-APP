@@ -29,6 +29,7 @@ const QueueEntry = require('../src/models/QueueEntry');
 const Order = require('../src/models/Order');
 const Notification = require('../src/models/Notification');
 const AuthOtp = require('../src/models/AuthOtp');
+const Receipt = require('../src/models/Receipt');
 
 const PASSWORD = 'Password123!';
 
@@ -155,6 +156,7 @@ if (!global.__SETUP_HOOKS_REGISTERED__) {
     // Keep the seeded venue/users; clear per-test transactional data.
     await Promise.all([
       Reservation.deleteMany({}),
+      Receipt.deleteMany({}),
       QueueEntry.deleteMany({}),
       Order.deleteMany({}),
       Notification.deleteMany({}),
@@ -181,6 +183,7 @@ async function clearAll() {
     Restaurant.deleteMany({}),
     Table.deleteMany({}),
     Reservation.deleteMany({}),
+    Receipt.deleteMany({}),
     QueueEntry.deleteMany({}),
     Order.deleteMany({}),
     Notification.deleteMany({}),

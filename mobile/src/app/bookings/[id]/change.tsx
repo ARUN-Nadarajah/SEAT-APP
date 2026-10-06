@@ -214,10 +214,20 @@ export default function ChangeReservationScreen() {
     (endTime !== null && endTime !== booking?.endTime) ||
     (selectedTableId !== null && selectedTableId !== booking?.tableId);
 
+  function handleBack() {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (id) {
+      router.replace(`/bookings/${id}` as any);
+    } else {
+      router.replace('/(tabs)/bookings');
+    }
+  }
+
   if (bookingQuery.isLoading) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
-        <Header onBack={() => router.back()} />
+        <Header onBack={handleBack} />
         <ScrollView contentContainerStyle={styles.content}>
           <Skeleton height={22} width="55%" />
           <Skeleton height={100} radius={radius.lg} />
@@ -231,7 +241,7 @@ export default function ChangeReservationScreen() {
   if (bookingQuery.isError || !booking) {
     return (
       <SafeAreaView style={styles.root} edges={['top']}>
-        <Header onBack={() => router.back()} />
+        <Header onBack={handleBack} />
         <ErrorState
           message={apiErrorMessage(bookingQuery.error)}
           onRetry={() => bookingQuery.refetch()}
@@ -284,7 +294,7 @@ export default function ChangeReservationScreen() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
-      <Header onBack={() => router.back()} />
+      <Header onBack={handleBack} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.intro}>
@@ -628,7 +638,7 @@ export default function ChangeReservationScreen() {
         <Button
           label="Keep existing booking"
           variant="secondary"
-          onPress={() => router.back()}
+          onPress={handleBack}
           testID="keep-booking"
         />
       </View>

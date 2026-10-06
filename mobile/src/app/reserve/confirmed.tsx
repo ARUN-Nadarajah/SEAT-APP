@@ -93,7 +93,17 @@ export default function ReservationConfirmedScreen() {
 
         <View style={styles.actions}>
           <Button
+            label="View Reservation Receipt"
+            onPress={() =>
+              router.push(
+                reservationId ? (`/bookings/${reservationId}/receipt` as any) : '/(tabs)/bookings',
+              )
+            }
+            testID="view-receipt"
+          />
+          <Button
             label="View my booking"
+            variant="secondary"
             onPress={() =>
               router.replace(
                 reservationId ? `/bookings/${reservationId}` : '/(tabs)/bookings',
@@ -103,7 +113,7 @@ export default function ReservationConfirmedScreen() {
           />
           <Button
             label="Back to explore"
-            variant="secondary"
+            variant="ghost"
             onPress={() => router.replace('/(tabs)/explore')}
           />
         </View>
