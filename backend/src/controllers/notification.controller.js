@@ -2,6 +2,7 @@ const { asyncHandler, AppError } = require("../utils/errors");
 const { success } = require("../utils/response");
 const { assertObjectId } = require("../middleware/validation.middleware");
 const notificationService = require("../services/notification.service");
+const { syncEligibleOfferNotifications } = require("../services/offer.service");
 
 /**
  * Notifications (spec §7 / FR06).
@@ -9,6 +10,7 @@ const notificationService = require("../services/notification.service");
 
 /** GET /api/notifications?unreadOnly=1 */
 const getNotifications = asyncHandler(async (req, res) => {
+  await syncEligibleOfferNotifications(req.user._id);
   const result = await notificationService.listNotifications(req.user._id, {
     unreadOnly: req.query.unreadOnly === "true" || req.query.unreadOnly === "1",
     type: req.query.type,

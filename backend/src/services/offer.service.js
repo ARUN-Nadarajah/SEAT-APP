@@ -16,7 +16,9 @@ async function listForManager(restaurantId) {
 }
 
 async function create(restaurantId, input) {
-  return publicOffer(await Offer.create({ ...input, restaurantId }));
+  const offer = await Offer.create({ ...input, restaurantId });
+  await notifyExistingEligibleCustomers(offer);
+  return publicOffer(offer);
 }
 
 async function update(restaurantId, id, input) {
@@ -26,6 +28,7 @@ async function update(restaurantId, id, input) {
     { new: true, runValidators: true },
   );
   if (!offer) throw new AppError("Offer not found.", 404, "not_found");
+  await notifyExistingEligibleCustomers(offer);
   return publicOffer(offer);
 }
 
@@ -64,9 +67,65 @@ async function notifyEligibleOffers(userId, restaurantId) {
     active: true,
     startDate: { $lte: now },
     endDate: { $gte: now },
+    // Eligibility is based on the customer's total completed reservations,
+    // including reservations completed before the offer was created.
     requiredReservations: { $lte: completedReservations },
   }).lean();
 
+  await notifyUserAboutOffers(userId, restaurantId, offers, completedReservations);
+}
+
+async function syncEligibleOfferNotifications(userId) {
+  const restaurantIds = await Reservation.distinct("restaurantId", {
+    userId,
+    status: "completed",
+  });
+
+  await Promise.all(
+    restaurantIds.map((restaurantId) =>
+      notifyEligibleOffers(userId, restaurantId),
+    ),
+  );
+}
+
+/**
+ * Newly created offers must also notify customers who completed their
+ * reservations before the manager published the offer.
+ */
+async function notifyExistingEligibleCustomers(offer) {
+  const now = new Date();
+  if (
+    !offer.active ||
+    offer.startDate > now ||
+    offer.endDate < now
+  ) {
+    return;
+  }
+
+  const userIds = await Reservation.distinct("userId", {
+    restaurantId: offer.restaurantId,
+    status: "completed",
+  });
+
+  await Promise.all(
+    userIds.map(async (userId) => {
+      const completedReservations = await Reservation.countDocuments({
+        restaurantId: offer.restaurantId,
+        userId,
+        status: "completed",
+      });
+      if (completedReservations < offer.requiredReservations) return;
+      await notifyUserAboutOffers(
+        userId,
+        offer.restaurantId,
+        [offer],
+        completedReservations,
+      );
+    }),
+  );
+}
+
+async function notifyUserAboutOffers(userId, restaurantId, offers, completedReservations) {
   for (const offer of offers) {
     const alreadySent = await Notification.exists({
       userId,
@@ -94,4 +153,5 @@ module.exports = {
   remove,
   listEligible,
   notifyEligibleOffers,
+  syncEligibleOfferNotifications,
 };

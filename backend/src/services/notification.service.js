@@ -64,16 +64,46 @@ async function notify({
   const prefs = user.notificationPrefs || {};
 
   // Persist in-app regardless of channel prefs so the list screen is full.
-  const notification = await Notification.create({
-    userId,
-    type,
-    title,
-    body,
-    route,
-    data,
-    channel: "in-app",
-    referenceId,
-  });
+  let notification;
+  let alreadyStored = false;
+  if (type === "offer" && referenceId) {
+    const result = await Notification.findOneAndUpdate(
+      { userId, type, referenceId },
+      {
+        $setOnInsert: {
+          userId,
+          type,
+          title,
+          body,
+          route,
+          data,
+          channel: "in-app",
+          referenceId,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+        includeResultMetadata: true,
+      },
+    );
+    notification = result.value;
+    alreadyStored = Boolean(result.lastErrorObject?.updatedExisting);
+  } else {
+    notification = await Notification.create({
+      userId,
+      type,
+      title,
+      body,
+      route,
+      data,
+      channel: "in-app",
+      referenceId,
+    });
+  }
+
+  if (alreadyStored) return notification;
 
   if (prefs.push !== false && user.pushToken) {
     await sendExpoPush(user.pushToken, { title, body, data: { ...data, route } });
@@ -129,8 +159,17 @@ async function listNotifications(userId, options = {}) {
     Notification.countDocuments({ userId, read: false }),
   ]);
 
+  const seenOfferIds = new Set();
+  const uniqueNotifications = notifications.filter((entry) => {
+    if (entry.type !== "offer" || !entry.referenceId) return true;
+    const key = String(entry.referenceId);
+    if (seenOfferIds.has(key)) return false;
+    seenOfferIds.add(key);
+    return true;
+  });
+
   return {
-    data: notifications.map((entry) => ({
+    data: uniqueNotifications.map((entry) => ({
       id: entry._id,
       type: entry.type,
       title: entry.title,
