@@ -21,7 +21,7 @@ const {
 async function countQueue(restaurantId) {
   return QueueEntry.countDocuments({
     restaurantId,
-    status: { $in: ["waiting", "notified"] },
+    status: { $in: ["waiting", "preparing", "ready"] },
   });
 }
 

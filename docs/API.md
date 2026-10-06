@@ -115,29 +115,29 @@ Statuses: `confirmed`, `checked-in`, `cancelled`, `completed`, `no-show`.
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| GET | `/queue/preview?restaurantId=&partySize=` | user | Wait estimate before joining |
-| POST | `/queue/join` | user | Join the virtual queue |
+| GET | `/queue/preview?restaurantId=` | user | Takeaway wait estimate before joining |
+| POST | `/queue/join` | user | Join the takeaway queue |
 | GET | `/queue/mine` | user | Active entry (`data: null` when empty) |
 | DELETE | `/queue/:id` | user | Leave the queue |
 | GET | `/queue/staff/list?restaurantId=` | staff/manager | Live line, ordered |
-| POST | `/queue/staff/call-next` | staff/manager | Notify the next party + hold a table |
-| POST | `/queue/staff/:id/notify` | staff/manager | Re-send "table ready" |
-| POST | `/queue/staff/:id/seat` | staff/manager | Seat the party |
-| POST | `/queue/staff/:id/remove` | staff/manager | `reason: no-show \| left` |
+| POST | `/queue/staff/call-next` | staff/manager | Start preparing the first waiting order |
+| POST | `/queue/staff/:id/start-preparing` | staff/manager | Move waiting order to preparing |
+| POST | `/queue/staff/:id/ready` | staff/manager | Mark ready and notify the customer |
+| POST | `/queue/staff/:id/collected` | staff/manager | Mark parcel collected |
+| POST | `/queue/staff/:id/remove` | staff/manager | `reason: no-show \| cancelled` |
 
 ```jsonc
 // GET /api/queue/mine
 { "data": {
-    "queueCode":"Q-0181", "position":4, "partiesAhead":3,
-    "stage":"getting-closer",              // joined | getting-closer | table-ready
-    "estimatedWait":20, "estimateLabel":"15–25 min",
-    "heldTableNumber":"", "status":"waiting"
+    "queueCode":"Q-0181", "position":4, "ordersAhead":3,
+    "stage":"preparing",                  // joined | preparing | ready
+    "estimatedWait":45, "estimateLabel":"45 min",
+    "status":"preparing"
   },
   "lastUpdated":"2026-10-03T12:00:00.000Z" }
 ```
 
-**Wait estimate** = `partiesAhead × averageSeatingMinutes ÷ freeTables`,
-banded to 5-minute steps (`"15–25 min"`).
+**Wait estimate** = `ordersAhead × averagePreparationMinutes`.
 
 Errors: `409 queue_disabled`, `409 already_in_queue`, `409 queue_empty`.
 

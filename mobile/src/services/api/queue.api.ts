@@ -5,17 +5,18 @@ import type { QueueEntry, QueuePreview, StaffQueueRow } from './types';
  * Virtual queue (spec §7 / FR03–FR06, FR09).
  */
 
-export async function fetchQueuePreview(restaurantId: string, partySize = 2) {
+export async function fetchQueuePreview(restaurantId: string) {
   const { data } = await apiClient.get<ApiEnvelope<QueuePreview>>(
     '/queue/preview',
-    { params: { restaurantId, partySize } },
+    { params: { restaurantId } },
   );
   return data;
 }
 
 export type JoinQueueInput = {
   restaurantId: string;
-  partySize: number;
+  orderId?: string;
+  orderSummary?: string;
   guestName?: string;
   guestPhone?: string;
 };
@@ -51,56 +52,30 @@ export async function fetchStaffQueue(restaurantId: string) {
   return data;
 }
 
-export type CalledParty = {
+export type CalledOrder = {
   entryId: string;
   queueCode: string;
-  partySize: number;
   guestName: string;
-  tableNumber: string;
-  tableCapacity: number | null;
-  notifiedAt: string;
   status: string;
 };
 
 /** Promote the next party and tell them their table is ready (FR06). */
-export async function callNextParty(restaurantId: string) {
-  const { data } = await apiClient.post<ApiEnvelope<CalledParty>>(
+export async function callNextOrder(restaurantId: string) {
+  const { data } = await apiClient.post<ApiEnvelope<CalledOrder>>(
     '/queue/staff/call-next',
     { restaurantId },
   );
   return data;
 }
 
-export async function notifyPartyReady(entryId: string, restaurantId: string) {
-  const { data } = await apiClient.post(`/queue/staff/${entryId}/notify`, {
-    restaurantId,
-  });
-  return data;
-}
-
-export async function seatParty(entryId: string, restaurantId: string) {
-  const { data } = await apiClient.post(`/queue/staff/${entryId}/seat`, {
-    restaurantId,
-  });
-  return data;
-}
-
 export async function removeFromQueue(
   entryId: string,
   restaurantId: string,
-  reason: 'no-show' | 'left' = 'no-show',
+  reason: 'no-show' | 'cancelled' = 'no-show',
 ) {
   const { data } = await apiClient.post(`/queue/staff/${entryId}/remove`, {
     restaurantId,
     reason,
-  });
-  return data;
-}
-
-/** Staff marks parcel as preparing (Sobiyan). */
-export async function markQueuePreparing(entryId: string, restaurantId: string) {
-  const { data } = await apiClient.post(`/queue/staff/${entryId}/preparing`, {
-    restaurantId,
   });
   return data;
 }
@@ -115,7 +90,7 @@ export async function markQueueReady(entryId: string, restaurantId: string) {
 
 /** Staff marks parcel as collected (Sobiyan). */
 export async function markQueueCollected(entryId: string, restaurantId: string) {
-  const { data } = await apiClient.post(`/queue/staff/${entryId}/collect`, {
+  const { data } = await apiClient.post(`/queue/staff/${entryId}/collected`, {
     restaurantId,
   });
   return data;

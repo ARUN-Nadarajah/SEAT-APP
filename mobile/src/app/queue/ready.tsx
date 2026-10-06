@@ -16,7 +16,7 @@ import { apiErrorMessage, fetchMyQueue } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
 /**
- * Table ready screen (FR06 / spec §5).
+ * Takeaway order ready screen.
  *
  * Full-screen "Come in. Your table is ready" with the required action
  * "I'm on my way". The queue code / table come from the live entry rather
@@ -81,15 +81,14 @@ export default function TableReadyScreen() {
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <View style={styles.content}>
         <View style={styles.badge}>
-          <Ionicons name="restaurant" size={44} color={colors.textPrimary} />
+          <Ionicons name="checkmark" size={56} color={colors.textPrimary} />
         </View>
 
         <AppText variant="display" style={styles.title}>
-          Come in.{'\n'}Your table is ready
+          Order ready for pickup
         </AppText>
         <AppText variant="secondary" style={styles.subtitle}>
-          Head to the host stand and give your queue code. We’ll hold the table
-          for 10 minutes.
+          Your parcel is ready. Collect it at the counter and show your queue code.
         </AppText>
 
         <Card style={styles.card}>
@@ -99,12 +98,11 @@ export default function TableReadyScreen() {
           </AppText>
           <AppText variant="secondary">
             {entry.restaurant?.name ?? 'Your restaurant'}
-            {entry.heldTableNumber ? ` · Table ${entry.heldTableNumber}` : ''}
           </AppText>
           <View style={styles.hintRow}>
             <View style={styles.dot} />
             <AppText variant="secondary">
-              Check the Queue tab for your live table number
+              Your queue code is your pickup reference
             </AppText>
           </View>
         </Card>
@@ -116,7 +114,7 @@ export default function TableReadyScreen() {
             testID="on-my-way"
           />
           <Button
-            label="View reservation"
+            label="Back to queue"
             variant="secondary"
             onPress={() => router.replace('/(tabs)/queue')}
           />

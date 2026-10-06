@@ -191,12 +191,12 @@ export default function RestaurantDetailsScreen() {
               <Ionicons name="people-outline" size={20} color={colors.primary} />
               <View style={styles.queueButtonText}>
                 <AppText variant="label" style={styles.queueButtonTitle}>
-                  Join the queue · {waitLabel}
+                  Takeaway · join queue
                 </AppText>
                 <AppText variant="caption">
                   {fullyBooked
                     ? 'Every table is taken — wait from home'
-                    : `${availability.queueLength} parties waiting right now`}
+                    : `${availability.queueLength} orders in the queue right now`}
                 </AppText>
               </View>
               <Ionicons name="arrow-forward" size={18} color={colors.primary} />
@@ -224,11 +224,9 @@ export default function RestaurantDetailsScreen() {
           {showQueueHelp ? (
             <InfoBox tone="info">
               <AppText variant="secondary">
-                A virtual queue is a waiting list you join remotely. You keep
-                your place in line from home, watch your position move in real
-                time, and get a notification the moment your table is ready.
-                It is not a fixed-time reservation — you wait, but you wait
-                elsewhere.
+                Join a takeaway queue from anywhere, track your parcel live, and
+                collect it when it is ready. Want to dine in? Reserve a table
+                instead.
               </AppText>
             </InfoBox>
           ) : null}

@@ -59,17 +59,15 @@ const DEFAULT_TABLE_IMAGE = 'https://images.unsplash.com/photo-1517248135467-4c7
 const HOW_IT_WORKS_STEPS: { title: string; description: string }[] = [
   {
     title: 'Join the queue',
-    description: 'Pick your party size and take a spot in line from your phone.',
+    description: 'Join the takeaway queue from your phone.',
   },
   {
-    title: 'Wait anywhere',
-    description:
-      'Watch your position move in real time while you get on with your day.',
+    title: 'We prepare your order',
+    description: 'Track your parcel as it moves through preparation.',
   },
   {
-    title: 'Get notified when your table is ready',
-    description:
-      'We alert you the moment your table is free and hold it for 10 minutes.',
+    title: 'Collect it when it is ready',
+    description: 'We tell you the moment your parcel is ready to collect.',
   },
 ];
 
@@ -413,8 +411,8 @@ export default function ExploreScreen() {
                   {queueEntry.restaurant?.name ?? 'Your restaurant'}
                 </AppText>
                 <AppText variant="caption" style={styles.spotWait}>
-                  {queueEntry.estimatedWaitLabel} · {queueEntry.partiesAhead}{' '}
-                  {queueEntry.partiesAhead === 1 ? 'party' : 'parties'} ahead
+                  {queueEntry.estimatedWaitLabel} · {queueEntry.ordersAhead}{' '}
+                  {queueEntry.ordersAhead === 1 ? 'order' : 'orders'} ahead
                 </AppText>
                 <View style={styles.spotLiveRow}>
                   <LiveDot color={colors.accent} />
@@ -456,11 +454,11 @@ export default function ExploreScreen() {
             </View>
 
             <AppText variant="heading">
-              Skip the wait with a virtual queue
+              Takeaway without the wait
             </AppText>
             <AppText variant="secondary">
-              Too busy to stand in line? Join the queue from anywhere, track your
-              spot live, and we’ll notify you when your table is ready.
+              Order your parcel from anywhere, track it live, and we&apos;ll tell you
+              the moment it&apos;s ready to collect.
             </AppText>
 
             <Button

@@ -53,6 +53,7 @@ const RESTAURANTS = [
     parkingLabel: "Parking available",
     distanceMeters: 450,
     averageSeatingMinutes: 75,
+    averagePreparationMinutes: 15,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -102,6 +103,7 @@ const RESTAURANTS = [
     parkingLabel: "Street parking",
     distanceMeters: 1200,
     averageSeatingMinutes: 60,
+    averagePreparationMinutes: 12,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -146,6 +148,7 @@ const RESTAURANTS = [
     parkingLabel: "Parking behind the cafe",
     distanceMeters: 250,
     averageSeatingMinutes: 45,
+    averagePreparationMinutes: 10,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -186,6 +189,7 @@ const RESTAURANTS = [
     parkingLabel: "Valet parking",
     distanceMeters: 900,
     averageSeatingMinutes: 90,
+    averagePreparationMinutes: 20,
     isQueueEnabled: false,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -364,13 +368,13 @@ async function seed() {
   // --- Live sample queue (FR03–FR05) ---
   const queueCount = await QueueEntry.countDocuments({
     restaurantId: palmyra._id,
-    status: { $in: ["waiting", "notified"] },
+    status: { $in: ["waiting", "preparing", "ready"] },
   });
   if (queueCount === 0) {
     const queueSeed = [
-      { name: "Tharshi M.", partySize: 2, offsetMin: -34 },
-      { name: "Gayan P.", partySize: 4, offsetMin: -21 },
-      { name: "Ishara N.", partySize: 3, offsetMin: -9 },
+      { name: "Tharshi M.", offsetMin: -34 },
+      { name: "Gayan P.", offsetMin: -21 },
+      { name: "Ishara N.", offsetMin: -9 },
     ];
     for (let index = 0; index < queueSeed.length; index += 1) {
       const seedEntry = queueSeed[index];
@@ -379,7 +383,6 @@ async function seed() {
         queueCode: `Q-0${181 + index}`,
         userId: customer._id,
         restaurantId: palmyra._id,
-        partySize: seedEntry.partySize,
         position: index + 1,
         status: "waiting",
         guestName: seedEntry.name,

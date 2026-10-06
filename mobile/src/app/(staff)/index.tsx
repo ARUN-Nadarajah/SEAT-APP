@@ -19,7 +19,6 @@ import {
   Card,
   EmptyState,
   ErrorState,
-  InfoBox,
   LastUpdated,
   RowSkeleton,
   Skeleton,
@@ -31,7 +30,7 @@ import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
   approveCancellation,
-  callNextParty,
+  callNextOrder,
   checkInBooking,
   createTable,
   fetchKitchenOrders,
@@ -40,15 +39,12 @@ import {
   fetchStaffReservations,
   fetchTables,
   markQueueCollected,
-  markQueuePreparing,
   markQueueReady,
   rejectCancellation,
   removeFromQueue,
-  seatParty,
   updateOrderStatus,
   updateTable,
   updateTableStatus,
-  type Order,
   type OrderStatus,
   type Table,
   type TableStatus,
@@ -352,29 +348,9 @@ export default function StaffDashboardScreen() {
 
   async function onCallNext() {
     try {
-      const result = await callNextParty(restaurantId);
+      await callNextOrder(restaurantId);
       queue.refetch();
-      tables.refetch();
-      router.push({
-        pathname: '/(staff)/notified',
-        params: {
-          queueCode: result.data?.queueCode ?? '',
-          tableNumber: result.data?.tableNumber ?? '',
-          guestName: result.data?.guestName ?? '',
-          partySize: String(result.data?.partySize ?? ''),
-        },
-      });
-    } catch (error) {
-      showToast(apiErrorMessage(error), 'error');
-    }
-  }
-
-  async function onSeat(entryId: string) {
-    try {
-      await seatParty(entryId, restaurantId);
-      queue.refetch();
-      tables.refetch();
-      showToast('Party seated.', 'success');
+      showToast('Next order is now preparing.', 'success');
     } catch (error) {
       showToast(apiErrorMessage(error), 'error');
     }
@@ -425,17 +401,6 @@ export default function StaffDashboardScreen() {
     }
   }
 
-  async function onMarkPreparing(entryId: string) {
-    try {
-      await markQueuePreparing(entryId, restaurantId);
-      queue.refetch();
-      markLive();
-      showToast('Parcel marked as preparing.', 'success');
-    } catch (error) {
-      showToast(apiErrorMessage(error), 'error');
-    }
-  }
-
   async function onMarkReady(entryId: string) {
     try {
       await markQueueReady(entryId, restaurantId);
@@ -475,6 +440,9 @@ export default function StaffDashboardScreen() {
 
   const summary = tables.data?.summary;
   const waitingCount = queue.data?.data?.filter((row) => row.status === 'waiting').length ?? 0;
+  const inQueueCount = queue.data?.data?.filter((row) =>
+    ['waiting', 'preparing', 'ready'].includes(row.status),
+  ).length ?? 0;
   const pendingCancelCount =
     (reservations.data?.data ?? []).filter((b) => b.status === 'cancellation_pending').length ?? 0;
 
@@ -548,7 +516,7 @@ export default function StaffDashboardScreen() {
         <Stat label="Free" value={summary?.available ?? 0} tone="success" />
         <Stat label="Seated" value={summary?.occupied ?? 0} tone="neutral" />
         <Stat label="Held" value={summary?.reserved ?? 0} tone="warning" />
-        <Stat label="Waiting" value={waitingCount} tone="accent" />
+        <Stat label="In queue" value={inQueueCount} tone="accent" />
       </View>
 
       {/* Panel switcher */}
@@ -843,7 +811,7 @@ export default function StaffDashboardScreen() {
                         <AppText variant="caption" style={styles.cancellationLabel}>
                           Cancellation Request Reason:
                         </AppText>
-                        <AppText variant="bodyMedium">"{booking.cancellationReason}"</AppText>
+                        <AppText variant="bodyMedium">&quot;{booking.cancellationReason}&quot;</AppText>
                         {booking.cancellationRequestedAt ? (
                           <AppText variant="caption" style={styles.cancellationTime}>
                             Requested at{' '}
@@ -892,14 +860,14 @@ export default function StaffDashboardScreen() {
             <ErrorState message={apiErrorMessage(queue.error)} onRetry={() => queue.refetch()} />
           ) : (queue.data?.data?.length ?? 0) === 0 ? (
             <EmptyState
-              title="Nobody waiting"
-              message="The queue is empty. Call next as soon as a party joins."
+              title="No takeaway orders in line. Yet."
+              message="Call next order as soon as a parcel joins the queue."
               glyph="⏳"
             />
           ) : (
             <>
               <Button
-                label={`Call next party${waitingCount ? ` (${waitingCount})` : ''}`}
+                label={`Call next order${waitingCount ? ` (${waitingCount})` : ''}`}
                 onPress={onCallNext}
                 disabled={waitingCount === 0}
                 testID="call-next"
@@ -915,11 +883,11 @@ export default function StaffDashboardScreen() {
                             {row.position}. {row.guestName}
                           </AppText>
                           {row.parcelToken ? (
-                            <Badge label={`Parcel ${row.parcelToken}`} tone="accent" />
+                            <Badge label="Parcel" tone="accent" />
                           ) : null}
                         </View>
                         <AppText variant="caption">
-                          {row.queueCode} · party of {row.partySize} · {row.estimateLabel}
+                          {row.queueCode} · {row.estimateLabel}
                         </AppText>
                         {row.orderSummary ? (
                           <AppText variant="caption" style={{ color: colors.primary, marginTop: 2 }}>
@@ -928,11 +896,11 @@ export default function StaffDashboardScreen() {
                         ) : null}
                       </View>
                       <Badge
-                        label={row.status}
+                        label={row.status === 'notified' ? 'ready' : row.status}
                         tone={
                           row.status === 'ready' || row.status === 'notified'
                             ? 'success'
-                            : row.status === 'preparing' || row.status === 'seated'
+                            :                             row.status === 'preparing'
                               ? 'accent'
                               : 'neutral'
                         }
@@ -943,15 +911,18 @@ export default function StaffDashboardScreen() {
                       {row.status === 'waiting' ? (
                         <>
                           <Button
-                            label="Preparing"
-                            variant="secondary"
-                            onPress={() => onMarkPreparing(row.id)}
+                            label="Remove"
+                            variant="danger"
+                            onPress={() => onRemove(row.id)}
                             style={styles.queueAction}
                           />
+                        </>
+                      ) : null}
+                      {row.status === 'preparing' || row.status === 'notified' ? (
+                        <>
                           <Button
-                            label="Seat"
-                            variant="secondary"
-                            onPress={() => onSeat(row.id)}
+                            label="Ready for pickup"
+                            onPress={() => onMarkReady(row.id)}
                             style={styles.queueAction}
                           />
                           <Button
@@ -962,27 +933,12 @@ export default function StaffDashboardScreen() {
                           />
                         </>
                       ) : null}
-                      {row.status === 'preparing' ? (
-                        <Button
-                          label="Ready for Pickup"
-                          onPress={() => onMarkReady(row.id)}
-                          style={styles.queueAction}
-                        />
-                      ) : null}
                       {row.status === 'ready' ? (
-                        <Button
-                          label="Mark Collected"
-                          variant="secondary"
-                          onPress={() => onMarkCollected(row.id)}
-                          style={styles.queueAction}
-                        />
-                      ) : null}
-                      {row.status === 'notified' ? (
                         <>
                           <Button
-                            label="Seat"
+                            label="Collected"
                             variant="secondary"
-                            onPress={() => onSeat(row.id)}
+                            onPress={() => onMarkCollected(row.id)}
                             style={styles.queueAction}
                           />
                           <Button

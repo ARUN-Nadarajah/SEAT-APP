@@ -28,24 +28,24 @@ async function createSecondGuest() {
   return login.body.data.accessToken;
 }
 
-async function join(token, partySize = 2) {
+async function join(token) {
   const response = await api(token)
     .post('/api/queue/join')
-    .send({ restaurantId: fixture.restaurantId, partySize })
+    .send({ restaurantId: fixture.restaurantId })
     .expect(201);
 
   return response.body.data;
 }
 
 describe('Virtual queue (FR03–FR06)', () => {
-  test('preview returns a wait estimate and parties ahead (FR04)', async () => {
+  test('preview returns a wait estimate and orders ahead (FR04)', async () => {
     const response = await api(fixture.tokens.customer)
       .get('/api/queue/preview')
       .query({ restaurantId: fixture.restaurantId })
       .expect(200);
 
-    expect(response.body.data.estimatedWaitLabel).toMatch(/\d+–\d+ min/);
-    expect(response.body.data.partiesAhead).toBe(0);
+    expect(response.body.data.estimatedWaitLabel).toMatch(/\d+ min/);
+    expect(response.body.data.ordersAhead).toBe(0);
     expect(response.body.lastUpdated).toEqual(expect.any(String));
   });
 
@@ -54,8 +54,8 @@ describe('Virtual queue (FR03–FR06)', () => {
 
     expect(entry.queueCode).toMatch(/^Q-\d{4}$/);
     expect(entry.position).toBe(1);
-    expect(entry.partiesAhead).toBe(0);
-    expect(entry.estimateLabel).toMatch(/\d+–\d+ min/);
+    expect(entry.ordersAhead).toBe(0);
+    expect(entry.estimateLabel).toMatch(/\d+ min/);
     expect(entry.stage).toBe('joined');
   });
 
@@ -66,7 +66,7 @@ describe('Virtual queue (FR03–FR06)', () => {
     const second = await join(secondToken);
 
     expect(second.position).toBe(first.position + 1);
-    expect(second.partiesAhead).toBe(1);
+    expect(second.ordersAhead).toBe(1);
   });
 
   test('rejects joining the same queue twice', async () => {
@@ -74,7 +74,7 @@ describe('Virtual queue (FR03–FR06)', () => {
 
     const response = await api(fixture.tokens.customer)
       .post('/api/queue/join')
-      .send({ restaurantId: fixture.restaurantId, partySize: 2 })
+      .send({ restaurantId: fixture.restaurantId })
       .expect(409);
 
     expect(response.body.code).toBe('already_in_queue');
@@ -118,34 +118,12 @@ describe('Virtual queue (FR03–FR06)', () => {
       .send({ restaurantId: fixture.restaurantId })
       .expect(200);
 
-    expect(response.body.message).toBe('The good news is sent.');
-    expect(response.body.data.tableNumber).toBeTruthy();
+    expect(response.body.message).toBe('Order marked as preparing.');
     expect(response.body.data.queueCode).toMatch(/^Q-\d{4}$/);
 
     // The notified guest gets a push/in-app message.
-    const notifications = await Notification.find({
-      userId: fixture.userIds.customer,
-      type: 'table-ready',
-    });
+    const notifications = await Notification.find({ userId: fixture.userIds.customer });
     expect(notifications.length).toBeGreaterThan(0);
-    expect(notifications[0].title).toBe('Come in. Your table is ready');
-  });
-
-  test('staff can seat a party (FR09)', async () => {
-    await join(fixture.tokens.customer);
-
-    const called = await api(fixture.tokens.staff)
-      .post('/api/queue/staff/call-next')
-      .send({ restaurantId: fixture.restaurantId })
-      .expect(200);
-
-    const seated = await api(fixture.tokens.staff)
-      .post(`/api/queue/staff/${called.body.data.entryId}/seat`)
-      .send({ restaurantId: fixture.restaurantId })
-      .expect(200);
-
-    expect(seated.body.data.status).toBe('seated');
-    expect(seated.body.data.tableNumber).toBeTruthy();
   });
 
   test('staff can remove a no-show (FR09)', async () => {

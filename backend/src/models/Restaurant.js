@@ -118,6 +118,12 @@ const restaurantSchema = new mongoose.Schema(
       type: Number,
       default: 75,
     },
+    /** Typical takeaway preparation duration used by the virtual queue. */
+    averagePreparationMinutes: {
+      type: Number,
+      default: 15,
+      min: 1,
+    },
     /** FR03 — join a virtual queue when no tables are free. */
     isQueueEnabled: {
       type: Boolean,

@@ -2,9 +2,7 @@ const mongoose = require("mongoose");
 
 /**
  * QueueEntry — spec §6.
- * (queueCode like Q-0181, userId, restaurantId, partySize, position,
- *  status: waiting/notified/seated/left/no-show,
- *  estimatedWait, joinedAt, notifiedAt)
+ * Takeaway queue entry: one order, no table or party size.
  *
  * One document per customer per active queue. `position` is 1-based and
  * recomputed whenever entries are added or removed, so the customer's
@@ -28,13 +26,12 @@ const queueEntrySchema = new mongoose.Schema(
       ref: "Restaurant",
       required: true,
     },
-    partySize: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 20,
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
     },
-    /** 1-based position in the live queue (1 = next to be seated). */
+    /** 1-based position in the live takeaway queue. */
     position: {
       type: Number,
       required: true,
@@ -45,9 +42,7 @@ const queueEntrySchema = new mongoose.Schema(
       required: true,
       enum: [
         "waiting",
-        "notified",
-        "seated",
-        "left",
+        "cancelled",
         "no-show",
         "preparing",
         "ready",
@@ -78,28 +73,15 @@ const queueEntrySchema = new mongoose.Schema(
       type: String,
       default: "",
     },
-    /** Table number held for this party once they are notified. */
-    heldTableNumber: {
-      type: String,
-      default: "",
-    },
     joinedAt: {
       type: Date,
       default: Date.now,
-    },
-    notifiedAt: {
-      type: Date,
-      default: null,
     },
     readyAt: {
       type: Date,
       default: null,
     },
     collectedAt: {
-      type: Date,
-      default: null,
-    },
-    seatedAt: {
       type: Date,
       default: null,
     },
@@ -125,17 +107,15 @@ queueEntrySchema.methods.toPublic = function toPublic() {
     orderSummary: this.orderSummary,
     userId: this.userId,
     restaurantId: this.restaurantId,
-    partySize: this.partySize,
+    orderId: this.orderId,
     position: this.position,
     status: this.status,
     estimatedWait: this.estimatedWait,
     guestName: this.guestName,
     heldTableNumber: this.heldTableNumber,
     joinedAt: this.joinedAt,
-    notifiedAt: this.notifiedAt,
     readyAt: this.readyAt,
     collectedAt: this.collectedAt,
-    seatedAt: this.seatedAt,
   };
 };
 
