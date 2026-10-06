@@ -17,7 +17,7 @@ const offerSchema = new mongoose.Schema(
     description: { type: String, required: true, trim: true },
     type: { type: String, enum: ["Percentage", "Value"], required: true },
     value: { type: String, required: true, trim: true },
-    requiredReservations: { type: Number, required: true, min: 1 },
+    requiredReservations: { type: Number, required: true, min: 0 },
     active: { type: Boolean, default: true },
     image: { type: String, default: "" },
     startDate: { type: Date, required: true },

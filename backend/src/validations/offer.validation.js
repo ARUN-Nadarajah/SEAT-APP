@@ -61,7 +61,7 @@ function validateOffer(body = {}) {
     type: body.type,
     value,
     requiredReservations: assertIntRange(body.requiredReservations, {
-      min: 1,
+      min: 0,
       max: 100000,
       fieldName: "Required reservations",
     }),

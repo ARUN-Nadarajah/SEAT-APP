@@ -235,8 +235,8 @@ export default function OffersScreen() {
       return;
     }
     const requiredReservations = Number(form.requiredReservations);
-    if (!Number.isInteger(requiredReservations) || requiredReservations < 1) {
-      showToast('Required reservations must be a whole number greater than 0.', 'error');
+    if (!Number.isInteger(requiredReservations) || requiredReservations < 0) {
+      showToast('Required reservations must be a whole number of 0 or more.', 'error');
       return;
     }
     const today = todayDateString();
