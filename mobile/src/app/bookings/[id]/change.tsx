@@ -14,6 +14,11 @@ import {
   Skeleton,
   useFeedback,
 } from '@/components/ui';
+import {
+  ReservationTimeRangePicker,
+  minutesToTime,
+  timeToMinutes,
+} from '@/components/ReservationTimeRangePicker';
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
@@ -42,49 +47,6 @@ function nextDays(count = 30) {
   });
 }
 
-function generateStartTimes(): { value: string; label: string }[] {
-  const times: { value: string; label: string }[] = [];
-  for (let m = 480; m <= 1290; m += 30) {
-    const hours = Math.floor(m / 60);
-    const mins = m % 60;
-    const value = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-    const meridiem = hours >= 12 ? 'PM' : 'AM';
-    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
-    const label = `${hour12}:${String(mins).padStart(2, '0')} ${meridiem}`;
-    times.push({ value, label });
-  }
-  return times;
-}
-
-function generateEndTimes(startValue: string): { value: string; label: string; durationLabel: string }[] {
-  const times: { value: string; label: string; durationLabel: string }[] = [];
-  const [sH, sM] = (startValue || '').split(':').map(Number);
-  const startMin = (sH || 0) * 60 + (sM || 0);
-
-  for (let m = startMin + 30; m <= 1320; m += 30) {
-    const hours = Math.floor(m / 60);
-    const mins = m % 60;
-    const value = `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`;
-    const meridiem = hours >= 12 ? 'PM' : 'AM';
-    const hour12 = hours % 12 === 0 ? 12 : hours % 12;
-    const label = `${hour12}:${String(mins).padStart(2, '0')} ${meridiem}`;
-
-    const diff = m - startMin;
-    const hoursPart = Math.floor(diff / 60);
-    const minsPart = diff % 60;
-    let durationLabel = '';
-    if (hoursPart > 0 && minsPart > 0) {
-      durationLabel = `${hoursPart}h ${minsPart}m`;
-    } else if (hoursPart > 0) {
-      durationLabel = `${hoursPart} hr${hoursPart > 1 ? 's' : ''}`;
-    } else {
-      durationLabel = `${minsPart} min`;
-    }
-    times.push({ value, label, durationLabel });
-  }
-  return times;
-}
-
 function formatSlotLabel(time: string): string {
   const [hours, minutes] = (time || '').split(':').map(Number);
   if (Number.isNaN(hours)) return time;
@@ -98,7 +60,6 @@ export default function ChangeReservationScreen() {
   const { showToast } = useFeedback();
 
   const days = useMemo(() => nextDays(30), []);
-  const startTimes = useMemo(() => generateStartTimes(), []);
 
   const bookingQuery = useApiQuery(['booking', id], () => fetchBooking(id!), {
     enabled: Boolean(id),
@@ -107,10 +68,16 @@ export default function ChangeReservationScreen() {
   const rawBookingData = bookingQuery.data?.data as Record<string, any> | undefined;
   const booking = (rawBookingData?.reservation ?? rawBookingData) as Booking | undefined;
 
+  const bookingStart = booking?.startTime ?? booking?.time ?? '12:00';
+  const bookingEnd = booking?.endTime ?? '13:30';
+  const bookingDuration = booking?.durationMinutes
+    ? Number(booking.durationMinutes)
+    : Math.max(30, timeToMinutes(bookingEnd) - timeToMinutes(bookingStart));
+
   const [partySize, setPartySize] = useState<number | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [startTime, setStartTime] = useState<string | null>(null);
-  const [endTime, setEndTime] = useState<string | null>(null);
+  const [durationMinutes, setDurationMinutes] = useState<number | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -118,10 +85,11 @@ export default function ChangeReservationScreen() {
 
   const effectiveParty = partySize ?? booking?.partySize ?? 2;
   const effectiveDate = date ?? (booking ? booking.date.slice(0, 10) : days[0].value);
-  const effectiveStartTime = startTime ?? booking?.startTime ?? booking?.time ?? '12:00';
-  const effectiveEndTime = endTime ?? booking?.endTime ?? '13:30';
-
-  const endTimes = useMemo(() => generateEndTimes(effectiveStartTime), [effectiveStartTime]);
+  const effectiveStartTime = startTime ?? bookingStart;
+  const effectiveDuration = durationMinutes ?? bookingDuration;
+  const effectiveEndTime = minutesToTime(
+    Math.min(1320, timeToMinutes(effectiveStartTime) + effectiveDuration),
+  );
 
   const restaurantId = booking?.restaurant?.id || '';
 
@@ -191,27 +159,26 @@ export default function ChangeReservationScreen() {
     }
   }, [slotData, effectiveStartTime]);
 
-  // Adjust endTime when startTime or slotData changes
+  // Adjust duration when startTime or slotData changes
   useEffect(() => {
-    const validEnds = generateEndTimes(effectiveStartTime);
-    if (!validEnds.some((e) => e.value === effectiveEndTime)) {
-      setEndTime(validEnds[1]?.value || validEnds[0]?.value || '13:00');
-    } else if (slotData?.endSlots && slotData.endSlots.length > 0) {
-      const currentEnd = slotData.endSlots.find((e) => e.time === effectiveEndTime);
+    if (slotData?.endSlots && slotData.endSlots.length > 0 && effectiveDuration > 0) {
+      const currentEnd = slotData.endSlots.find((e) => e.durationMinutes === effectiveDuration);
       if (currentEnd && !currentEnd.available) {
         const firstFreeEnd = slotData.endSlots.find((e) => e.available);
-        if (firstFreeEnd) {
-          setEndTime(firstFreeEnd.time);
+        if (firstFreeEnd && typeof firstFreeEnd.durationMinutes === 'number') {
+          setDurationMinutes(firstFreeEnd.durationMinutes);
+        } else {
+          setDurationMinutes(0);
         }
       }
     }
-  }, [effectiveStartTime, slotData]);
+  }, [slotData, effectiveDuration]);
 
   const hasChanges =
     partySize !== null ||
     date !== null ||
-    (startTime !== null && startTime !== (booking?.startTime || booking?.time)) ||
-    (endTime !== null && endTime !== booking?.endTime) ||
+    (startTime !== null && startTime !== bookingStart) ||
+    (durationMinutes !== null && durationMinutes !== bookingDuration) ||
     (selectedTableId !== null && selectedTableId !== booking?.tableId);
 
   function handleBack() {
@@ -493,109 +460,23 @@ export default function ChangeReservationScreen() {
         )}
 
         {/* 4 — Time range */}
-        <Card>
-          <View style={styles.sectionHeaderRow}>
-            <SectionTitle>Time range</SectionTitle>
-            {slotAvailabilityQuery.isFetching ? (
-              <ActivityIndicator size="small" color={colors.primary} />
-            ) : null}
-          </View>
-          <AppText variant="caption" style={styles.subHint}>
-            {selectedTable
-              ? `Available times for Table ${selectedTable.tableNumber} · Greyed-out slots are already reserved`
-              : 'Operating hours: 8:00 AM – 10:00 PM · Greyed-out slots are unavailable'}
-          </AppText>
-
-          <AppText variant="label" style={styles.timeLabel}>
-            Start Time
-          </AppText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeScroll}>
-            {startTimes.map((st) => {
-              const isSelected = effectiveStartTime === st.value;
-              const slotInfo = slotData?.startSlots?.find((s) => s.time === st.value);
-              const isAvailable = slotInfo ? slotInfo.available : true;
-
-              return (
-                <Pressable
-                  key={st.value}
-                  disabled={!isAvailable}
-                  onPress={() => {
-                    setStartTime(st.value);
-                  }}
-                  style={[
-                    styles.timeChip,
-                    isSelected && styles.timeChipActive,
-                    !isAvailable && styles.timeChipDisabled,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected, disabled: !isAvailable }}
-                  accessibilityLabel={`${st.label}${!isAvailable ? ' unavailable' : ''}`}
-                >
-                  <AppText
-                    variant="caption"
-                    style={[
-                      styles.timeChipText,
-                      isSelected && styles.timeChipTextActive,
-                      !isAvailable && styles.timeChipTextDisabled,
-                    ]}
-                  >
-                    {st.label}
-                  </AppText>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          <AppText variant="label" style={[styles.timeLabel, { marginTop: spacing.md }]}>
-            End Time
-          </AppText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeScroll}>
-            {endTimes.map((et) => {
-              const isSelected = effectiveEndTime === et.value;
-              const endSlotInfo = slotData?.endSlots?.find((e) => e.time === et.value);
-              const isAvailable = endSlotInfo ? endSlotInfo.available : true;
-
-              return (
-                <Pressable
-                  key={et.value}
-                  disabled={!isAvailable}
-                  onPress={() => {
-                    setEndTime(et.value);
-                  }}
-                  style={[
-                    styles.timeChip,
-                    isSelected && styles.timeChipActive,
-                    !isAvailable && styles.timeChipDisabled,
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected, disabled: !isAvailable }}
-                  accessibilityLabel={`${et.label} (${et.durationLabel})${!isAvailable ? ' unavailable' : ''}`}
-                >
-                  <AppText
-                    variant="caption"
-                    style={[
-                      styles.timeChipText,
-                      isSelected && styles.timeChipTextActive,
-                      !isAvailable && styles.timeChipTextDisabled,
-                    ]}
-                  >
-                    {et.label}
-                  </AppText>
-                  <AppText
-                    variant="caption"
-                    style={[
-                      styles.timeChipSub,
-                      isSelected && styles.timeChipSubActive,
-                      !isAvailable && styles.timeChipSubDisabled,
-                    ]}
-                  >
-                    {et.durationLabel}
-                  </AppText>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Card>
+        <ReservationTimeRangePicker
+          title="Time range"
+          startTime={effectiveStartTime}
+          durationMinutes={effectiveDuration}
+          onStartTimeChange={(newStart) => {
+            setStartTime(newStart);
+            setError(null);
+          }}
+          onDurationChange={(newDur) => {
+            setDurationMinutes(newDur);
+            setError(null);
+          }}
+          slotData={slotData}
+          isLoading={slotAvailabilityQuery.isFetching}
+          selectedTable={selectedTable}
+          hourlyRate={selectedTable?.hourlyReservationRate ?? 300}
+        />
 
         {error ? (
           <InfoBox tone="danger">
@@ -632,7 +513,14 @@ export default function ChangeReservationScreen() {
           label="Save changes"
           onPress={onSave}
           loading={saving}
-          disabled={!hasChanges || !selectedTable || isChangingTable || selectedTable.capacity < effectiveParty}
+          disabled={
+            !hasChanges ||
+            !selectedTable ||
+            isChangingTable ||
+            selectedTable.capacity < effectiveParty ||
+            effectiveDuration < 30 ||
+            !effectiveStartTime
+          }
           testID="save-changes"
         />
         <Button
@@ -720,36 +608,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   dayActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  timeLabel: { fontSize: 14, color: colors.textPrimary, marginBottom: spacing.xs },
-  timeScroll: { gap: spacing.sm, paddingRight: spacing.lg },
-  timeChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: 80,
-  },
-  timeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  timeChipDisabled: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    opacity: 0.4,
-  },
-  timeChipText: { fontSize: 13, color: colors.textPrimary, fontWeight: '600' },
-  timeChipTextActive: { color: colors.textOnPrimary },
-  timeChipTextDisabled: {
-    color: colors.textMuted,
-    textDecorationLine: 'line-through',
-  },
-  timeChipSub: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
-  timeChipSubActive: { color: colors.textOnPrimary, opacity: 0.9 },
-  timeChipSubDisabled: {
-    color: colors.textMuted,
-  },
   tableList: { gap: spacing.sm, marginTop: spacing.sm },
   tableCard: {
     flexDirection: 'row',
