@@ -22,6 +22,7 @@ const Restaurant = require("../src/models/Restaurant");
 const Table = require("../src/models/Table");
 const Reservation = require("../src/models/Reservation");
 const QueueEntry = require("../src/models/QueueEntry");
+const Order = require("../src/models/Order");
 const Notification = require("../src/models/Notification");
 const { today, timeToMinutes, minutesToTime, combineDateAndTime } = require("../src/utils/time");
 
@@ -53,6 +54,7 @@ const RESTAURANTS = [
     parkingLabel: "Parking available",
     distanceMeters: 450,
     averageSeatingMinutes: 75,
+    averagePreparationMinutes: 15,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -102,6 +104,7 @@ const RESTAURANTS = [
     parkingLabel: "Street parking",
     distanceMeters: 1200,
     averageSeatingMinutes: 60,
+    averagePreparationMinutes: 12,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -146,6 +149,7 @@ const RESTAURANTS = [
     parkingLabel: "Parking behind the cafe",
     distanceMeters: 250,
     averageSeatingMinutes: 45,
+    averagePreparationMinutes: 10,
     isQueueEnabled: true,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -186,6 +190,7 @@ const RESTAURANTS = [
     parkingLabel: "Valet parking",
     distanceMeters: 900,
     averageSeatingMinutes: 90,
+    averagePreparationMinutes: 20,
     isQueueEnabled: false,
     firstSlotLabel: "7:00 PM",
     slotIntervalMinutes: 30,
@@ -270,6 +275,7 @@ async function seed() {
       Table.deleteMany({}),
       Reservation.deleteMany({}),
       QueueEntry.deleteMany({}),
+      Order.deleteMany({}),
       Notification.deleteMany({}),
     ]);
   }
@@ -289,6 +295,15 @@ async function seed() {
       );
       console.log(`  + ${restaurant.name} (${tables.length} tables)`);
     } else {
+      // Keep existing restaurant IDs and bookings, but refresh the demo menu
+      // so `seed:keep` also repairs databases created before menu support.
+      restaurant.set({
+        menuItems: fields.menuItems,
+        averagePreparationMinutes: fields.averagePreparationMinutes,
+        isQueueEnabled: fields.isQueueEnabled,
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await restaurant.save();
       // eslint-disable-next-line no-await-in-loop
       await Table.deleteMany({ restaurantId: restaurant._id });
       // eslint-disable-next-line no-await-in-loop
@@ -380,32 +395,73 @@ async function seed() {
   // --- Live sample queue (FR03–FR05) ---
   const queueCount = await QueueEntry.countDocuments({
     restaurantId: palmyra._id,
-    status: { $in: ["waiting", "notified"] },
+    status: { $in: ["waiting", "preparing", "ready"] },
   });
   if (queueCount === 0) {
     const queueSeed = [
-      { name: "Tharshi M.", partySize: 2, offsetMin: -34 },
-      { name: "Gayan P.", partySize: 4, offsetMin: -21 },
-      { name: "Ishara N.", partySize: 3, offsetMin: -9 },
+      { name: "Tharshi M.", offsetMin: -34 },
+      { name: "Gayan P.", offsetMin: -21 },
+      { name: "Ishara N.", offsetMin: -9 },
     ];
     for (let index = 0; index < queueSeed.length; index += 1) {
       const seedEntry = queueSeed[index];
       // eslint-disable-next-line no-await-in-loop
-      await QueueEntry.create({
+      const menuItem = palmyra.menuItems[index % palmyra.menuItems.length];
+      const order = await Order.create({
+        orderCode: `P-${2101 + index}`,
+        userId: customer._id,
+        restaurantId: palmyra._id,
+        orderType: "takeaway",
+        items: [{
+          menuItemId: menuItem._id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: index + 1,
+          totalAmount: menuItem.price * (index + 1),
+        }],
+        totalAmount: menuItem.price * (index + 1),
+        status: index === 0 ? "placed" : index === 1 ? "preparing" : "ready",
+      });
+      // eslint-disable-next-line no-await-in-loop
+      const entry = await QueueEntry.create({
         queueCode: `Q-0${181 + index}`,
         userId: customer._id,
         restaurantId: palmyra._id,
-        partySize: seedEntry.partySize,
+        orderId: order._id,
         position: index + 1,
-        status: "waiting",
+        status: index === 0 ? "waiting" : index === 1 ? "preparing" : "ready",
+        parcelToken: order.orderCode,
         guestName: seedEntry.name,
         joinedAt: new Date(Date.now() + seedEntry.offsetMin * 60000),
         estimatedWait: 0,
       });
+      order.queueEntryId = entry._id;
+      await order.save();
     }
     // Everyone in the sample queue gets the demo customer's account so the
     // Queue tab has data, except the last one which is an anonymous walk-up.
     console.log(`  + ${queueSeed.length} live queue entries`);
+  }
+
+  const checkedInReservation = await Reservation.findOne({
+    restaurantId: palmyra._id,
+    userId: customer._id,
+    status: "checked-in",
+  });
+  if (checkedInReservation && !(await Order.exists({ reservationId: checkedInReservation._id }))) {
+    const menuItem = palmyra.menuItems[1];
+    await Order.create({
+      orderCode: "ORD-3101",
+      userId: customer._id,
+      restaurantId: palmyra._id,
+      orderType: "dine-in",
+      reservationId: checkedInReservation._id,
+      tableId: checkedInReservation.tableId,
+      items: [{ menuItemId: menuItem._id, name: menuItem.name, price: menuItem.price, quantity: 1, totalAmount: menuItem.price }],
+      totalAmount: menuItem.price,
+      status: "placed",
+    });
+    console.log("  + 1 checked-in dine-in order");
   }
 
   // --- Sample notifications ---

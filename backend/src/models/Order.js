@@ -2,9 +2,9 @@ const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema(
   {
-    foodId: {
+    menuItemId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "Food",
+      ref: "Restaurant",
       required: true,
     },
     name: {
@@ -17,12 +17,17 @@ const orderItemSchema = new mongoose.Schema(
       required: true,
       min: 1,
     },
-    unitPrice: {
+    price: {
       type: Number,
       required: true,
       min: 0,
     },
-    subtotal: {
+    notes: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    totalAmount: {
       type: Number,
       required: true,
       min: 0,
@@ -33,8 +38,10 @@ const orderItemSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    orderNumber: {
+    orderCode: {
       type: String,
+      required: true,
+      unique: true,
       trim: true,
     },
     userId: {
@@ -47,18 +54,20 @@ const orderSchema = new mongoose.Schema(
       ref: "Restaurant",
       required: true,
     },
+    queueEntryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "QueueEntry",
+      default: null,
+    },
     reservationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Reservation",
       default: null,
     },
-    tableNumber: {
-      type: String,
-      default: "",
-    },
-    parcelToken: {
-      type: String,
-      default: "",
+    tableId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Table",
+      default: null,
     },
     items: {
       type: [orderItemSchema],
@@ -79,22 +88,21 @@ const orderSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        "pending",
-        "confirmed",
+        "placed",
         "preparing",
         "ready",
         "served",
-        "completed",
+        "collected",
         "cancelled",
       ],
-      default: "pending",
+      default: "placed",
     },
     orderType: {
       type: String,
-      enum: ["dine_in", "takeaway"],
-      default: "dine_in",
+      enum: ["dine-in", "takeaway"],
+      default: "dine-in",
     },
-    specialInstructions: {
+    note: {
       type: String,
       default: "",
     },
@@ -107,21 +115,21 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ userId: 1 });
 orderSchema.index({ restaurantId: 1 });
 orderSchema.index({ reservationId: 1 });
+orderSchema.index({ queueEntryId: 1 });
 
 orderSchema.methods.toPublic = function toPublic() {
   return {
     id: this._id,
-    orderNumber: this.orderNumber || `ORD-${String(this._id).slice(-4).toUpperCase()}`,
+    orderCode: this.orderCode,
     userId: this.userId,
     restaurantId: this.restaurantId,
     reservationId: this.reservationId,
-    tableNumber: this.tableNumber || "",
-    parcelToken: this.parcelToken || "",
+    tableId: this.tableId,
     items: this.items,
     totalAmount: this.totalAmount,
     status: this.status,
     orderType: this.orderType,
-    specialInstructions: this.specialInstructions,
+    notes: this.notes,
     createdAt: this.createdAt,
     updatedAt: this.updatedAt,
   };

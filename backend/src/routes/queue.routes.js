@@ -7,8 +7,6 @@ const {
   getQueue,
   removeFromQueue,
   callNext,
-  notifyReady,
-  seat,
   remove,
   markPreparing,
   markReady,
@@ -30,11 +28,12 @@ router.delete("/:id", removeFromQueue);
 // --- Staff (FR06, FR09) — declared before "/:id" so ids resolve correctly ---
 router.get("/staff/list", requireRole("staff", "manager"), getQueue);
 router.post("/staff/call-next", requireRole("staff", "manager"), callNext);
-router.post("/staff/:id/notify", requireRole("staff", "manager"), notifyReady);
-router.post("/staff/:id/seat", requireRole("staff", "manager"), seat);
 router.post("/staff/:id/remove", requireRole("staff", "manager"), remove);
+router.post("/staff/:id/start-preparing", requireRole("staff", "manager"), markPreparing);
+// Backward-compatible alias for clients that have not refreshed yet.
 router.post("/staff/:id/preparing", requireRole("staff", "manager"), markPreparing);
 router.post("/staff/:id/ready", requireRole("staff", "manager"), markReady);
+router.post("/staff/:id/collected", requireRole("staff", "manager"), markCollected);
 router.post("/staff/:id/collect", requireRole("staff", "manager"), markCollected);
 
 module.exports = router;

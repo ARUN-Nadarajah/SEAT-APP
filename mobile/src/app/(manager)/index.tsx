@@ -15,6 +15,7 @@ import {
   Skeleton,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
+import { useLogout } from '@/hooks/useLogout';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
@@ -35,7 +36,8 @@ function todayString(daysAgo: number): string {
  * wait — plus a date filter and a simple reservations-by-hour chart.
  */
 export default function ManagerDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const { confirmLogout, loggingOut } = useLogout();
   const [range, setRange] = useState<Range>('today');
   const [refreshing, setRefreshing] = useState(false);
 
@@ -81,9 +83,8 @@ export default function ManagerDashboardScreen() {
         </View>
         <Pressable
           style={styles.iconButton}
-          onPress={async () => {
-            await logout();
-            router.replace('/(auth)/login');
+          onPress={() => {
+            confirmLogout();
           }}
           accessibilityRole="button"
           accessibilityLabel="Log out"
@@ -295,12 +296,16 @@ export default function ManagerDashboardScreen() {
 
             <Pressable
               style={styles.footerLink}
-              onPress={() => router.push('/(auth)/login')}
+              onPress={() => {
+                confirmLogout();
+              }}
+              disabled={loggingOut}
               accessibilityRole="button"
+              accessibilityLabel="Log out of SEAT"
             >
               <Ionicons name="log-out-outline" size={16} color={colors.danger} />
               <AppText variant="label" style={styles.footerLinkDanger}>
-                Switch account
+                Log out
               </AppText>
             </Pressable>
           </>

@@ -313,7 +313,6 @@ describe("Sobiyan's Staff & Kitchen Features", () => {
         .post('/api/queue/join')
         .send({
           restaurantId: fixture.restaurantId,
-          partySize: 1,
           guestName: 'Parcel Customer',
         })
         .expect(201);
@@ -322,7 +321,7 @@ describe("Sobiyan's Staff & Kitchen Features", () => {
 
       // 2. Staff marks preparing
       const prepRes = await api(fixture.tokens.staff)
-        .post(`/api/queue/staff/${entryId}/preparing`)
+        .post(`/api/queue/staff/${entryId}/start-preparing`)
         .send({ restaurantId: fixture.restaurantId })
         .expect(200);
 
@@ -346,7 +345,7 @@ describe("Sobiyan's Staff & Kitchen Features", () => {
 
       // 4. Staff marks collected
       const collectRes = await api(fixture.tokens.staff)
-        .post(`/api/queue/staff/${entryId}/collect`)
+        .post(`/api/queue/staff/${entryId}/collected`)
         .send({ restaurantId: fixture.restaurantId })
         .expect(200);
 
@@ -358,14 +357,13 @@ describe("Sobiyan's Staff & Kitchen Features", () => {
         .post('/api/queue/join')
         .send({
           restaurantId: fixture.restaurantId,
-          partySize: 2,
         })
         .expect(201);
 
       const entryId = joinRes.body.data.id;
 
       await api(fixture.tokens.customer)
-        .post(`/api/queue/staff/${entryId}/preparing`)
+        .post(`/api/queue/staff/${entryId}/start-preparing`)
         .send({ restaurantId: fixture.restaurantId })
         .expect(403);
 
@@ -375,10 +373,9 @@ describe("Sobiyan's Staff & Kitchen Features", () => {
         .expect(403);
 
       await api(fixture.tokens.customer)
-        .post(`/api/queue/staff/${entryId}/collect`)
+        .post(`/api/queue/staff/${entryId}/collected`)
         .send({ restaurantId: fixture.restaurantId })
         .expect(403);
     });
   });
 });
-

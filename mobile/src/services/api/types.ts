@@ -100,6 +100,9 @@ export type Offer = {
 };
 
 export type MenuItem = {
+  _id?: string;
+  id?: string;
+  menuItemId?: string;
   name: string;
   description: string;
   price: number;
@@ -170,13 +173,12 @@ export type BookingList = {
 
 export type SlotAlternative = { time: string; label: string };
 
-export type QueueStage = 'joined' | 'getting-closer' | 'table-ready';
+export type QueueStage = 'joined' | 'preparing' | 'ready';
 
 export type QueueStatus =
   | 'waiting'
   | 'notified'
-  | 'seated'
-  | 'left'
+  | 'cancelled'
   | 'no-show'
   | 'preparing'
   | 'ready'
@@ -194,35 +196,30 @@ export type QueueEntry = {
     address: string;
     image: string;
   } | null;
-  partySize: number;
   position: number;
-  partiesAhead: number;
+  ordersAhead: number;
   status: QueueStatus;
   stage: QueueStage;
   estimatedWait: number;
   estimateLabel: string;
   estimatedWaitLabel: string;
   guestName: string;
-  heldTableNumber: string;
   joinedAt: string;
-  notifiedAt: string | null;
   readyAt?: string | null;
   collectedAt?: string | null;
-  seatedAt: string | null;
 } & LastUpdated;
 
 export type QueuePreview = {
   restaurantId: string;
   restaurantName: string;
   queueLength: number;
-  partiesAhead: number;
+  ordersAhead: number;
   isQueueEnabled: boolean;
   minutes: number;
   min: number;
   max: number;
   label: string;
   estimatedWaitLabel: string;
-  freeTables: number;
 } & LastUpdated;
 
 export type StaffQueueRow = {
@@ -230,19 +227,16 @@ export type StaffQueueRow = {
   queueCode: string;
   parcelToken?: string;
   orderSummary?: string;
-  partySize: number;
   position: number;
   status: QueueStatus;
   estimatedWait: number;
   estimateLabel: string;
   guestName: string;
   guestPhone: string;
-  heldTableNumber: string;
   joinedAt: string;
-  notifiedAt: string | null;
   readyAt?: string | null;
   collectedAt?: string | null;
-  seatedAt: string | null;
+  ordersAhead: number;
 };
 
 export type TableStatus = 'available' | 'occupied' | 'reserved' | 'maintenance';
@@ -309,26 +303,30 @@ export type HourlyBucket = {
 };
 
 export type OrderStatus =
-  | 'pending'
-  | 'confirmed'
+  | 'placed'
   | 'preparing'
   | 'ready'
   | 'served'
-  | 'completed'
-  | 'cancelled';
+  | 'collected'
+  | 'cancelled'
+  | 'pending'
+  | 'confirmed'
+  | 'completed';
 
-export type OrderType = 'dine_in' | 'takeaway';
+export type OrderType = 'dine-in' | 'takeaway' | 'dine_in';
 
 export type OrderItem = {
-  foodId: string;
+  menuItemId: string;
   name: string;
   quantity: number;
-  unitPrice: number;
-  subtotal: number;
+  price: number;
+  note?: string;
+  totalAmount?: number;
 };
 
 export type Order = {
   id: string;
+  orderCode: string;
   orderNumber?: string;
   userId?:
     | string
@@ -350,13 +348,14 @@ export type Order = {
         tableNumber?: string;
       }
     | null;
+  tableId?: string;
   tableNumber?: string;
-  parcelToken?: string;
+  queueEntryId?: string | null;
   items: OrderItem[];
   totalAmount: number;
   status: OrderStatus;
   orderType: OrderType;
-  specialInstructions?: string;
+  notes?: string;
   user?: {
     id?: string;
     name: string;
@@ -373,4 +372,3 @@ export type Order = {
   createdAt: string;
   updatedAt?: string;
 };
-

@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -20,17 +21,23 @@ import {
   EmptyState,
   ErrorState,
   LastUpdated,
+  LiveDot,
+  relativeLabel,
   Skeleton,
+  useFeedback,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
+  fetchMyQueue,
   fetchNotifications,
   fetchRestaurants,
   fetchTables,
   type Table,
 } from '@/services/api';
-import { onTableUpdated } from '@/services/realtime/socket';
+import { onQueueUpdated, onTableUpdated } from '@/services/realtime/socket';
+import { setPendingQueueRestaurant } from '@/services/queue-navigation';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, shadow, spacing } from '@/theme';
 
 type AvailabilityFilter = 'all' | 'available' | 'reserved';
@@ -48,6 +55,22 @@ const LOCATION_IMAGES: Record<string, string> = {
 };
 
 const DEFAULT_TABLE_IMAGE = 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75';
+
+/** "How it works" steps behind the info icon on the virtual queue card. */
+const HOW_IT_WORKS_STEPS: { title: string; description: string }[] = [
+  {
+    title: 'Join the queue',
+    description: 'Join the takeaway queue from your phone.',
+  },
+  {
+    title: 'We prepare your order',
+    description: 'Track your parcel as it moves through preparation.',
+  },
+  {
+    title: 'Collect it when it is ready',
+    description: 'We tell you the moment your parcel is ready to collect.',
+  },
+];
 
 function getTableImage(table: Table): string {
   if (table.image) return table.image;
@@ -79,19 +102,23 @@ export default function ExploreScreen() {
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('all');
   const [guestFilter, setGuestFilter] = useState<GuestFilter>('all');
   const [locationFilter, setLocationFilter] = useState<string>('all');
+  const [queueLiveAt, setQueueLiveAt] = useState<string | null>(null);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
+  const { showToast } = useFeedback();
 
   // Resolve the restaurant
   const venueQuery = useApiQuery(
     ['single-restaurant-venue'],
     async () => {
-      const all = await fetchRestaurants({ limit: 1 });
-      return all.data?.[0] ?? null;
+      const all = await fetchRestaurants({ limit: 50 });
+      return all.data ?? [];
     },
     { retry: 1 },
   );
 
-  const restaurant = venueQuery.data ?? null;
-  const restaurantId = restaurant?.id ?? '';
+  const venues = useMemo(() => venueQuery.data ?? [], [venueQuery.data]);
+  const restaurant = venues.find((venue) => venue.id === EXPLORE_RESTAURANT_ID) ?? null;
+  const restaurantId = EXPLORE_RESTAURANT_ID;
 
   // Fetch real tables for this restaurant
   const tablesQuery = useApiQuery(
@@ -105,6 +132,23 @@ export default function ExploreScreen() {
     fetchNotifications(true),
   );
   const unreadCount = notifications.data?.unreadCount ?? 0;
+
+  // This customer's live queue spot: null → promo card, entry → spot card.
+  const myQueue = useApiQuery(['queue', 'mine'], () => fetchMyQueue());
+  const queueEntry = myQueue.data?.data ?? null;
+  const queueRestaurantId = queueEntry?.restaurantId ?? null;
+
+  const refreshQueueSpot = useCallback(() => {
+    myQueue.refetch();
+    setQueueLiveAt(new Date().toISOString());
+  }, [myQueue]);
+
+  // FR05 — the "your place in line" card updates live while Home is open.
+  useEffect(() => {
+    if (!queueRestaurantId) return;
+    const unsubscribe = onQueueUpdated(queueRestaurantId, refreshQueueSpot);
+    return unsubscribe;
+  }, [queueRestaurantId, refreshQueueSpot]);
 
   // Real-time synchronization via Socket.IO
   const refetchTables = useCallback(() => {
@@ -123,6 +167,7 @@ export default function ExploreScreen() {
       venueQuery.refetch(),
       tablesQuery.refetch(),
       notifications.refetch(),
+      myQueue.refetch(),
     ]);
     setRefreshing(false);
   }
@@ -165,12 +210,36 @@ export default function ExploreScreen() {
     });
   }, [allTables, availabilityFilter, guestFilter, locationFilter]);
 
+  // Restaurants that currently run a virtual queue (FR03).
+  const queueEnabledVenues = useMemo(
+    () => venues.filter(
+      (venue) => venue.id === EXPLORE_RESTAURANT_ID && venue.isQueueEnabled,
+    ),
+    [venues],
+  );
+
+  // "Queue · 15–25 min" pill for cards whose venue has an active queue.
+  const queueBadgeLabel =
+    restaurant && restaurant.isQueueEnabled && restaurant.queueLength > 0
+      ? `Queue · ${restaurant.walkInWaitLabel.replace(' walk-in wait', '')}`
+      : null;
+
+  function onJoinQueue() {
+    const target = queueEnabledVenues[0];
+    if (!target) {
+      showToast('No restaurants are running a virtual queue right now.', 'info');
+      return;
+    }
+    setPendingQueueRestaurant(target.id);
+    router.push('/queue/join');
+  }
+
   function onSelectTable(table: Table) {
     if (!restaurant) return;
     router.push({
       pathname: '/reserve',
       params: {
-        restaurantId: restaurant.id,
+        restaurantId: EXPLORE_RESTAURANT_ID,
         tableId: table.id || table._id || '',
         tableNumber: formatTableLabel(table.tableNumber),
         partySize: String(table.capacity),
@@ -320,6 +389,90 @@ export default function ExploreScreen() {
           ) : null}
         </View>
 
+        {/* Virtual queue (FR03–FR05): live spot card, or the promo card */}
+        {myQueue.isLoading ? (
+          <Skeleton height={172} radius={radius.xl} />
+        ) : queueEntry ? (
+          <View
+            style={styles.spotCard}
+            accessibilityLabel={`Your place in line at ${
+              queueEntry.restaurant?.name ?? 'the restaurant'
+            }, position ${queueEntry.position}`}
+          >
+            <View style={styles.spotTop}>
+              <View style={styles.spotNumberBlock}>
+                <AppText variant="numeral" style={styles.spotNumber}>
+                  {queueEntry.position}
+                </AppText>
+                <AppText variant="caption" style={styles.spotNumberLabel}>
+                  place in line
+                </AppText>
+              </View>
+
+              <View style={styles.spotMeta}>
+                <AppText variant="label" style={styles.spotRestaurant}>
+                  {queueEntry.restaurant?.name ?? 'Your restaurant'}
+                </AppText>
+                <AppText variant="caption" style={styles.spotWait}>
+                  {queueEntry.estimatedWaitLabel} · {queueEntry.ordersAhead}{' '}
+                  {queueEntry.ordersAhead === 1 ? 'order' : 'orders'} ahead
+                </AppText>
+                <View style={styles.spotLiveRow}>
+                  <LiveDot color={colors.accent} />
+                  <AppText variant="caption" style={styles.spotLiveText}>
+                    Live · {relativeLabel(queueLiveAt ?? queueEntry.lastUpdated)}
+                  </AppText>
+                </View>
+              </View>
+            </View>
+
+            <Button
+              label="View queue"
+              variant="accent"
+              onPress={() => router.push('/(tabs)/queue')}
+              accessibilityLabel="Open the queue tracker"
+              testID="view-queue"
+            />
+          </View>
+        ) : (
+          <View style={styles.promoCard}>
+            <View style={styles.promoHeader}>
+              <View style={styles.promoIcon}>
+                <Ionicons name="people-outline" size={18} color={colors.primary} />
+              </View>
+              <Pressable
+                onPress={() => setHowItWorksOpen(true)}
+                style={styles.promoInfo}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="How the virtual queue works"
+                testID="queue-how-it-works"
+              >
+                <Ionicons
+                  name="information-circle-outline"
+                  size={26}
+                  color={colors.primary}
+                />
+              </Pressable>
+            </View>
+
+            <AppText variant="heading">
+              Takeaway without the wait
+            </AppText>
+            <AppText variant="secondary">
+              Order your parcel from anywhere, track it live, and we&apos;ll tell you
+              the moment it&apos;s ready to collect.
+            </AppText>
+
+            <Button
+              label="Join a queue"
+              onPress={onJoinQueue}
+              accessibilityLabel="Join a virtual queue"
+              testID="join-a-queue"
+            />
+          </View>
+        )}
+
         {/* Table Cards List */}
         {tablesQuery.isLoading ? (
           <View style={styles.loadingList}>
@@ -354,6 +507,7 @@ export default function ExploreScreen() {
               <TableCardItem
                 key={table.id || table.tableNumber}
                 table={table}
+                queueBadge={queueBadgeLabel}
                 onSelect={() => onSelectTable(table)}
               />
             ))}
@@ -362,6 +516,57 @@ export default function ExploreScreen() {
 
         <LastUpdated timestamp={tablesQuery.data?.lastUpdated} live />
       </ScrollView>
+
+      {/* "How it works" bottom sheet (FR03 first-time explainer) */}
+      <Modal
+        visible={howItWorksOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setHowItWorksOpen(false)}
+      >
+        <View style={styles.sheetBackdrop}>
+          <Pressable
+            style={styles.sheetScrim}
+            onPress={() => setHowItWorksOpen(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close how it works"
+          />
+          <View style={styles.sheet} accessibilityViewIsModal>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <AppText variant="heading">How it works</AppText>
+              <Pressable
+                onPress={() => setHowItWorksOpen(false)}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Ionicons name="close" size={22} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            {HOW_IT_WORKS_STEPS.map((step, index) => (
+              <View key={step.title} style={styles.stepRow}>
+                <View style={styles.stepNumber}>
+                  <AppText variant="label" style={styles.stepNumberText}>
+                    {index + 1}
+                  </AppText>
+                </View>
+                <View style={styles.stepBody}>
+                  <AppText variant="label">{step.title}</AppText>
+                  <AppText variant="secondary">{step.description}</AppText>
+                </View>
+              </View>
+            ))}
+
+            <Button
+              label="Got it"
+              variant="secondary"
+              onPress={() => setHowItWorksOpen(false)}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -382,9 +587,11 @@ export default function ExploreScreen() {
  */
 function TableCardItem({
   table,
+  queueBadge,
   onSelect,
 }: {
   table: Table;
+  queueBadge?: string | null;
   onSelect: () => void;
 }) {
   const isAvailable = table.status === 'available';
@@ -412,6 +619,11 @@ function TableCardItem({
         <View style={styles.imageOverlayBadge}>
           <Badge label={statusLabel} tone={statusTone} />
         </View>
+        {queueBadge ? (
+          <View style={styles.imageOverlayQueue}>
+            <Badge label={queueBadge} tone="accent" />
+          </View>
+        ) : null}
       </View>
 
       {/* Card Body */}
@@ -574,6 +786,127 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingRight: spacing.lg,
   },
+  promoCard: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    ...shadow.card,
+  },
+  promoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  promoIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  promoInfo: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spotCard: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+    ...shadow.raised,
+  },
+  spotTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+  },
+  spotNumberBlock: {
+    alignItems: 'center',
+    minWidth: 92,
+  },
+  spotNumber: {
+    fontSize: 52,
+    lineHeight: 56,
+    textAlign: 'center',
+  },
+  spotNumberLabel: {
+    color: 'rgba(255,255,255,0.75)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  spotMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  spotRestaurant: {
+    color: colors.textOnPrimary,
+    fontSize: 15,
+  },
+  spotWait: {
+    color: 'rgba(255,255,255,0.8)',
+  },
+  spotLiveRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  spotLiveText: {
+    color: colors.accent,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'flex-end',
+  },
+  sheetScrim: {
+    flex: 1,
+  },
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing['2xl'],
+    paddingBottom: spacing['3xl'],
+    gap: spacing.lg,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.borderStrong,
+    alignSelf: 'center',
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  stepNumber: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumberText: {
+    color: colors.textPrimary,
+  },
+  stepBody: {
+    flex: 1,
+    gap: 2,
+  },
   loadingList: {
     gap: spacing.lg,
   },
@@ -604,6 +937,11 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: spacing.md,
     right: spacing.md,
+  },
+  imageOverlayQueue: {
+    position: 'absolute',
+    top: spacing.md,
+    left: spacing.md,
   },
   cardBody: {
     padding: spacing.lg,

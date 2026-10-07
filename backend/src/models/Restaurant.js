@@ -13,7 +13,7 @@ const menuItemSchema = new mongoose.Schema(
     isVegetarian: { type: Boolean, default: false },
     isPopular: { type: Boolean, default: false },
   },
-  { _id: false },
+  { _id: true },
 );
 
 /**
@@ -117,6 +117,12 @@ const restaurantSchema = new mongoose.Schema(
     averageSeatingMinutes: {
       type: Number,
       default: 75,
+    },
+    /** Typical takeaway preparation duration used by the virtual queue. */
+    averagePreparationMinutes: {
+      type: Number,
+      default: 15,
+      min: 1,
     },
     /** FR03 — join a virtual queue when no tables are free. */
     isQueueEnabled: {

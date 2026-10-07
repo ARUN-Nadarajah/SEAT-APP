@@ -216,6 +216,19 @@ export default function ReservationDetailsScreen() {
               })}
               . Enjoy your meal.
             </AppText>
+            <Button
+              label="Order food"
+              onPress={() =>
+                router.push({
+                  pathname: '/restaurant/menu',
+                  params: {
+                    orderType: 'dine-in',
+                    reservationId: booking.id,
+                    tableId: (booking as Booking & { tableId?: string }).tableId,
+                  },
+                })
+              }
+            />
           </InfoBox>
         ) : null}
 

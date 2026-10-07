@@ -17,6 +17,8 @@ import {
 import { useApiQuery } from '@/hooks/useApi';
 import { apiErrorMessage, fetchRestaurant } from '@/services/api';
 import { colors, radius, shadow, spacing } from '@/theme';
+import { setPendingQueueRestaurant } from '@/services/queue-navigation';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 
 /**
  * Restaurant Details (spec §5 + FR03).
@@ -27,12 +29,13 @@ import { colors, radius, shadow, spacing } from '@/theme';
  */
 export default function RestaurantDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const restaurantId = id || EXPLORE_RESTAURANT_ID;
   const [showQueueHelp, setShowQueueHelp] = useState(false);
 
   const query = useApiQuery(
-    ['restaurant', id],
-    () => fetchRestaurant(id!, { partySize: 2 }),
-    { enabled: Boolean(id) },
+    ['restaurant', restaurantId],
+    () => fetchRestaurant(restaurantId, { partySize: 2 }),
+    { enabled: Boolean(restaurantId) },
   );
 
   if (query.isLoading) {
@@ -140,7 +143,7 @@ export default function RestaurantDetailsScreen() {
         <View style={styles.linkRow}>
           <Pressable
             style={styles.linkCard}
-            onPress={() => router.push(`/restaurant/${restaurant.id}/menu`)}
+            onPress={() => router.push('/restaurant/menu')}
             accessibilityRole="button"
             accessibilityLabel="Explore the menu"
           >
@@ -151,7 +154,7 @@ export default function RestaurantDetailsScreen() {
 
           <Pressable
             style={styles.linkCard}
-            onPress={() => router.push(`/restaurant/${restaurant.id}/location`)}
+            onPress={() => router.push('/restaurant/location')}
             accessibilityRole="button"
             accessibilityLabel="Plan your arrival"
           >
@@ -177,12 +180,10 @@ export default function RestaurantDetailsScreen() {
 
           {/* Secondary queue action — high contrast so it is never missed. */}
           <Pressable
-            onPress={() =>
-              router.push({
-                pathname: '/queue/join',
-                params: { restaurantId: restaurant.id },
-              })
-            }
+            onPress={() => {
+              setPendingQueueRestaurant(restaurant.id);
+              router.push('/queue/join');
+            }}
             style={styles.queueButton}
             accessibilityRole="button"
             accessibilityLabel={`Join the queue, ${waitLabel} estimated wait`}
@@ -192,12 +193,12 @@ export default function RestaurantDetailsScreen() {
               <Ionicons name="people-outline" size={20} color={colors.primary} />
               <View style={styles.queueButtonText}>
                 <AppText variant="label" style={styles.queueButtonTitle}>
-                  Join the queue · {waitLabel}
+                  Takeaway · join queue
                 </AppText>
                 <AppText variant="caption">
                   {fullyBooked
                     ? 'Every table is taken — wait from home'
-                    : `${availability.queueLength} parties waiting right now`}
+                    : `${availability.queueLength} orders in the queue right now`}
                 </AppText>
               </View>
               <Ionicons name="arrow-forward" size={18} color={colors.primary} />
@@ -225,11 +226,9 @@ export default function RestaurantDetailsScreen() {
           {showQueueHelp ? (
             <InfoBox tone="info">
               <AppText variant="secondary">
-                A virtual queue is a waiting list you join remotely. You keep
-                your place in line from home, watch your position move in real
-                time, and get a notification the moment your table is ready.
-                It is not a fixed-time reservation — you wait, but you wait
-                elsewhere.
+                Join a takeaway queue from anywhere, track your parcel live, and
+                collect it when it is ready. Want to dine in? Reserve a table
+                instead.
               </AppText>
             </InfoBox>
           ) : null}

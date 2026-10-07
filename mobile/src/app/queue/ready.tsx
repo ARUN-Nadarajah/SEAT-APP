@@ -3,40 +3,106 @@ import { router } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppText, Button, Card } from '@/components/ui';
-import { colors, spacing } from '@/theme';
+import {
+  AppText,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+} from '@/components/ui';
+import { useApiQuery } from '@/hooks/useApi';
+import { apiErrorMessage, fetchMyQueue } from '@/services/api';
+import { colors, radius, spacing } from '@/theme';
 
 /**
- * Table ready screen (FR06 / spec §5).
+ * Takeaway order ready screen.
  *
- * Full-screen "Come in. Your table is ready" with the two required actions:
- * "I'm on my way" and "View reservation".
+ * Full-screen "Come in. Your table is ready" with the required action
+ * "I'm on my way". The queue code / table come from the live entry rather
+ * than a placeholder, so the screen stays correct after a refresh.
  */
 export default function TableReadyScreen() {
+  const queue = useApiQuery(['queue', 'mine'], () => fetchMyQueue());
+  const entry = queue.data?.data ?? null;
+
+  if (queue.isLoading) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+        <View style={styles.content}>
+          <Skeleton height={96} width={96} radius={48} />
+          <Skeleton height={34} width="70%" />
+          <Skeleton height={20} width="80%" />
+          <Skeleton height={120} radius={radius.lg} style={{ alignSelf: 'stretch' }} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (queue.isError) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+        <View style={styles.content}>
+          <ErrorState
+            message={apiErrorMessage(queue.error)}
+            onRetry={() => queue.refetch()}
+          />
+          <Button
+            label="Back to queue"
+            variant="secondary"
+            onPress={() => router.replace('/(tabs)/queue')}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!entry) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+        <View style={styles.content}>
+          <EmptyState
+            title="No active queue spot"
+            message="Your place in line has been used, or you have left the queue. Join again whenever you like."
+            glyph="⏳"
+            action={
+              <Button
+                label="Browse tables"
+                onPress={() => router.replace('/(tabs)/explore')}
+              />
+            }
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
       <View style={styles.content}>
         <View style={styles.badge}>
-          <Ionicons name="restaurant" size={44} color={colors.textPrimary} />
+          <Ionicons name="checkmark" size={56} color={colors.textPrimary} />
         </View>
 
         <AppText variant="display" style={styles.title}>
-          Come in.{'\n'}Your table is ready
+          Order ready for pickup
         </AppText>
         <AppText variant="secondary" style={styles.subtitle}>
-          Head to the host stand and give your queue code. We’ll hold the table
-          for 10 minutes.
+          Your parcel is ready. Collect it at the counter and show your queue code.
         </AppText>
 
         <Card style={styles.card}>
           <AppText variant="caption">YOUR QUEUE CODE</AppText>
           <AppText variant="display" style={styles.code}>
-            Q-0181
+            {entry.queueCode}
+          </AppText>
+          <AppText variant="secondary">
+            {entry.restaurant?.name ?? 'Your restaurant'}
           </AppText>
           <View style={styles.hintRow}>
             <View style={styles.dot} />
             <AppText variant="secondary">
-              Check the Queue tab for your live table number
+              Your queue code is your pickup reference
             </AppText>
           </View>
         </Card>
@@ -48,7 +114,7 @@ export default function TableReadyScreen() {
             testID="on-my-way"
           />
           <Button
-            label="View reservation"
+            label="Back to queue"
             variant="secondary"
             onPress={() => router.replace('/(tabs)/queue')}
           />

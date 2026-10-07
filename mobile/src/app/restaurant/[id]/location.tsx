@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppText, Badge, Button, Card, ErrorState, Skeleton } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
 import { apiErrorMessage, fetchRestaurant } from '@/services/api';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, spacing } from '@/theme';
 
 /**
@@ -29,11 +30,12 @@ if (Platform.OS !== 'web') {
 
 export default function LocationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const restaurantId = id || EXPLORE_RESTAURANT_ID;
 
   const query = useApiQuery(
-    ['restaurant', id],
-    () => fetchRestaurant(id!, { partySize: 2 }),
-    { enabled: Boolean(id) },
+    ['restaurant', restaurantId],
+    () => fetchRestaurant(restaurantId, { partySize: 2 }),
+    { enabled: Boolean(restaurantId) },
   );
 
   if (query.isLoading) {

@@ -7,6 +7,7 @@ const {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
+  cancelOrder,
 } = require("../controllers/order.controller");
 const { authenticate } = require("../middleware/auth.middleware");
 const { requireRole } = require("../middleware/role.middleware");
@@ -22,6 +23,7 @@ router.get("/kitchen", requireRole("staff", "manager"), getKitchenOrders);
 router.get("/", getOrders);
 router.post("/", createOrder);
 router.get("/:id", getOrderById);
+router.post("/:id/cancel", requireRole("customer"), cancelOrder);
 
 // Kitchen status updates (Sobiyan)
 router.patch("/:id/status", requireRole("staff", "manager"), updateOrderStatus);
@@ -29,4 +31,3 @@ router.post("/:id/status", requireRole("staff", "manager"), updateOrderStatus);
 router.delete("/:id", requireRole("staff", "manager"), deleteOrder);
 
 module.exports = router;
-

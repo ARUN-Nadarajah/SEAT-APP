@@ -9,7 +9,13 @@ import {
 import { AppText } from './Text';
 import { colors, radius, spacing, touch } from '@/theme';
 
-type Variant = 'primary' | 'secondary' | 'accent' | 'danger' | 'ghost';
+type Variant =
+  | 'primary'
+  | 'secondary'
+  | 'accent'
+  | 'danger'
+  | 'dangerOutline'
+  | 'ghost';
 
 /**
  * Primary / secondary / danger action button (spec §8, §9).
@@ -105,6 +111,14 @@ const styles = StyleSheet.create({
 
   danger: { backgroundColor: colors.danger },
   dangerLabel: { color: colors.textOnPrimary },
+
+  /** Outlined destructive action (Log out on staff/manager footers). */
+  dangerOutline: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+  },
+  dangerOutlineLabel: { color: colors.danger },
 
   ghost: { backgroundColor: 'transparent' },
   ghostLabel: { color: colors.primary },

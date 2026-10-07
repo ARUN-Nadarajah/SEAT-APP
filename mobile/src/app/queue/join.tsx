@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -14,7 +14,6 @@ import {
   LastUpdated,
   SectionTitle,
   Skeleton,
-  useFeedback,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
 import { useAuth } from '@/features/auth/auth-context';
@@ -22,22 +21,19 @@ import {
   apiErrorMessage,
   fetchQueuePreview,
   fetchRestaurants,
-  joinQueue,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
+import { consumePendingQueueRestaurant } from '@/services/queue-navigation';
 
-const PARTY_SIZES = [1, 2, 3, 4, 5, 6, 8];
 
 /**
  * Join Virtual Queue (FR03 + FR04, spec §5).
  *
- * Shows the wait estimate and parties ahead BEFORE committing, and states
- * plainly that this is a waiting list rather than a fixed-time booking.
+ * Shows the wait estimate and orders ahead before committing.
  */
 export default function JoinQueueScreen() {
-  const params = useLocalSearchParams<{ restaurantId?: string }>();
   const { user } = useAuth();
-  const { showToast } = useFeedback();
+  const [selectedRestaurantId] = useState(() => consumePendingQueueRestaurant());
 
   const defaultVenueQuery = useApiQuery(
     ['default-venue-queue'],
@@ -45,46 +41,26 @@ export default function JoinQueueScreen() {
       const all = await fetchRestaurants({ limit: 1 });
       return all.data?.[0] ?? null;
     },
-    { enabled: !params.restaurantId },
+    { enabled: !selectedRestaurantId },
   );
 
-  const restaurantId = params.restaurantId || defaultVenueQuery.data?.id || '';
+  const restaurantId = selectedRestaurantId || defaultVenueQuery.data?.id || '';
 
-  const [partySize, setPartySize] = useState(2);
   const [guestName, setGuestName] = useState(user?.name ?? '');
   const [guestPhone, setGuestPhone] = useState(user?.phone ?? '');
-  const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const preview = useApiQuery(
-    ['queue-preview', restaurantId, partySize],
-    () => fetchQueuePreview(restaurantId, partySize),
+    ['queue-preview', restaurantId],
+    () => fetchQueuePreview(restaurantId),
     { enabled: Boolean(restaurantId), refetchInterval: 20000 },
   );
 
   const data = preview.data?.data;
 
-  async function onJoin() {
+  function onChooseFood() {
     if (!restaurantId) return;
-    setJoining(true);
-    setError(null);
-
-    try {
-      await joinQueue({
-        restaurantId,
-        partySize,
-        guestName: guestName.trim(),
-        guestPhone: guestPhone.trim(),
-      });
-      showToast('Your spot is saved.', 'success');
-      router.replace('/(tabs)/queue');
-    } catch (caught) {
-      const message = apiErrorMessage(caught);
-      setError(message);
-      showToast(message, 'error');
-    } finally {
-      setJoining(false);
-    }
+    router.push({ pathname: '/restaurant/menu', params: { orderType: 'takeaway' } });
   }
 
   return (
@@ -101,7 +77,7 @@ export default function JoinQueueScreen() {
         </Pressable>
         <View style={styles.headerTitle}>
           <AppText variant="label">Join the queue</AppText>
-          <AppText variant="caption">Virtual waiting list</AppText>
+          <AppText variant="caption">Takeaway queue</AppText>
         </View>
         <View style={styles.back} />
       </View>
@@ -131,36 +107,12 @@ export default function JoinQueueScreen() {
                 </View>
                 <View style={styles.summaryDivider} />
                 <View style={styles.summaryStat}>
-                  <AppText style={styles.summaryValue}>{data?.partiesAhead ?? 0}</AppText>
-                  <AppText style={styles.summaryLabel}>parties ahead</AppText>
+                  <AppText style={styles.summaryValue}>{data?.ordersAhead ?? 0}</AppText>
+                  <AppText style={styles.summaryLabel}>orders ahead</AppText>
                 </View>
               </View>
               <LastUpdated timestamp={preview.data?.lastUpdated} label="Live estimate" style={styles.summaryStamp} />
             </View>
-
-            {/* Party size */}
-            <Card>
-              <SectionTitle>How many of you?</SectionTitle>
-              <View style={styles.partyRow}>
-                {PARTY_SIZES.map((size) => (
-                  <Pressable
-                    key={size}
-                    onPress={() => setPartySize(size)}
-                    style={[styles.chip, partySize === size && styles.chipActive]}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: partySize === size }}
-                    accessibilityLabel={`Party of ${size}`}
-                  >
-                    <AppText
-                      variant="label"
-                      style={partySize === size ? styles.chipTextActive : undefined}
-                    >
-                      {size}
-                    </AppText>
-                  </Pressable>
-                ))}
-              </View>
-            </Card>
 
             {/* Guest details */}
             <Card>
@@ -178,17 +130,13 @@ export default function JoinQueueScreen() {
                 onChangeText={setGuestPhone}
                 placeholder="+94 77 123 4567"
                 keyboardType="phone-pad"
-                hint="Only used for the table-ready call."
+                hint="Only used if the restaurant needs to contact you."
               />
             </Card>
 
-            {/* Honesty note (spec §5) */}
-            <InfoBox tone="warning">
-              <AppText variant="label">Before you join</AppText>
+            <InfoBox tone="info">
               <AppText variant="secondary">
-                This is a waiting list, not a fixed-time reservation. Wait times
-                are estimates and can change; we’ll notify you the moment your
-                table is ready and hold it for 10 minutes.
+                This is a takeaway queue. To dine in, reserve a table instead.
               </AppText>
             </InfoBox>
 
@@ -203,9 +151,8 @@ export default function JoinQueueScreen() {
 
       <View style={styles.footer}>
         <Button
-          label="Join virtual queue"
-          onPress={onJoin}
-          loading={joining}
+          label="Choose food & join queue"
+          onPress={onChooseFood}
           disabled={preview.isLoading}
           testID="join-queue-submit"
         />

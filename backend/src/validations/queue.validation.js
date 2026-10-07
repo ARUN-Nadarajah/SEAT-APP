@@ -1,24 +1,18 @@
 const { AppError } = require("../utils/errors");
-const {
-  assertObjectId,
-  assertIntRange,
-} = require("../middleware/validation.middleware");
+const { assertObjectId } = require("../middleware/validation.middleware");
 
 /** POST /api/queue/join (FR03) */
 function validateJoinQueue(payload = {}) {
   return {
     restaurantId: assertObjectId(payload.restaurantId, "restaurantId"),
-    partySize: assertIntRange(payload.partySize, {
-      min: 1,
-      max: 20,
-      fieldName: "Party size",
-    }),
+    orderId: payload.orderId ? assertObjectId(payload.orderId, "orderId") : null,
+    orderSummary: String(payload.orderSummary || "").trim().slice(0, 200),
     guestName: String(payload.guestName || "").trim().slice(0, 80),
     guestPhone: String(payload.guestPhone || "").trim().slice(0, 30),
   };
 }
 
-/** Staff queue actions: /call-next, /:id/notify, /:id/seat, /:id/remove */
+/** Staff queue actions share a restaurant scope. */
 function validateRestaurantScope(params = {}, query = {}) {
   const restaurantId = params.restaurantId || query.restaurantId;
   if (!restaurantId) {
@@ -33,9 +27,9 @@ function validateRestaurantScope(params = {}, query = {}) {
 
 function validateRemoveReason(body = {}) {
   const reason = String(body.reason || "no-show");
-  if (!["no-show", "left"].includes(reason)) {
+  if (!["no-show", "cancelled"].includes(reason)) {
     throw new AppError(
-      "Reason must be 'no-show' or 'left'.",
+      "Reason must be 'no-show' or 'cancelled'.",
       400,
       "validation_error",
     );

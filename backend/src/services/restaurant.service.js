@@ -1,4 +1,5 @@
 const Restaurant = require("../models/Restaurant");
+const Food = require("../models/Food");
 const Table = require("../models/Table");
 const Reservation = require("../models/Reservation");
 const QueueEntry = require("../models/QueueEntry");
@@ -21,7 +22,7 @@ const {
 async function countQueue(restaurantId) {
   return QueueEntry.countDocuments({
     restaurantId,
-    status: { $in: ["waiting", "notified"] },
+    status: { $in: ["waiting", "preparing", "ready"] },
   });
 }
 
@@ -312,8 +313,24 @@ async function getMenu(id) {
     throw new AppError("Restaurant not found.", 404, "not_found");
   }
 
+  let menuItems = restaurant.menuItems || [];
+  if (menuItems.length === 0) {
+    const foodItems = await Food.find({ restaurantId: restaurant._id, isAvailable: true })
+      .sort({ category: 1, name: 1 })
+      .lean();
+    menuItems = foodItems.map(({ _id, name, description, price, category }) => ({
+      _id,
+      name,
+      description,
+      price,
+      category,
+      isVegetarian: false,
+      isPopular: false,
+    }));
+  }
+
   const categories = [];
-  for (const item of restaurant.menuItems || []) {
+  for (const item of menuItems) {
     let bucket = categories.find((entry) => entry.name === item.category);
     if (!bucket) {
       bucket = { name: item.category, items: [] };
@@ -326,7 +343,7 @@ async function getMenu(id) {
     data: {
       restaurant: { id: restaurant._id, name: restaurant.name },
       categories,
-      items: restaurant.menuItems || [],
+      items: menuItems,
     },
     lastUpdated: new Date().toISOString(),
   };

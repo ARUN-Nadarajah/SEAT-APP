@@ -14,6 +14,7 @@ import {
   useFeedback,
 } from '@/components/ui';
 import { useAuth } from '@/features/auth/auth-context';
+import { useLogout } from '@/hooks/useLogout';
 import { apiErrorMessage, updateProfile } from '@/services/api';
 import { colors, spacing } from '@/theme';
 
@@ -31,7 +32,8 @@ const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
  * toggle a test user expected), privacy notice, help and logout.
  */
 export default function ProfileScreen() {
-  const { user, logout, isLoading: authLoading } = useAuth();
+  const { user } = useAuth();
+  const { confirmLogout, loggingOut } = useLogout();
   const { showToast } = useFeedback();
 
   const [name, setName] = useState(user?.name ?? '');
@@ -71,8 +73,8 @@ export default function ProfileScreen() {
   }
 
   async function onLogout() {
-    await logout();
-    router.replace('/(auth)/login');
+    // Shared flow: confirm → clear tokens → drop the socket → Login.
+    await confirmLogout();
   }
 
   async function onContactSupport() {
@@ -120,6 +122,12 @@ export default function ProfileScreen() {
         </Card>
 
         {/* Edit details */}
+        <Card>
+          <SectionTitle>Orders</SectionTitle>
+          <AppText variant="secondary">View current and past takeaway and dine-in orders.</AppText>
+          <Button label="My orders" variant="secondary" onPress={() => router.push('/orders')} />
+        </Card>
+
         <Card>
           <SectionTitle>Your details</SectionTitle>
           <Field label="Full name" value={name} onChangeText={setName} autoCapitalize="words" />
@@ -182,7 +190,7 @@ export default function ProfileScreen() {
           label="Log out"
           variant="danger"
           onPress={onLogout}
-          loading={authLoading}
+          loading={loggingOut}
           accessibilityLabel="Log out of your account"
         />
 

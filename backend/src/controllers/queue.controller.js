@@ -1,6 +1,6 @@
 const { asyncHandler } = require("../utils/errors");
 const { success } = require("../utils/response");
-const { validateBody, validateQuery, assertObjectId } =
+const { validateBody, assertObjectId } =
   require("../middleware/validation.middleware");
 const queueService = require("../services/queue.service");
 const {
@@ -19,10 +19,7 @@ const {
 /** POST /api/queue/preview — wait estimate before joining (FR04). */
 const getPreview = asyncHandler(async (req, res) => {
   const { restaurantId } = validateRestaurantScope({}, req.query);
-  const result = await queueService.getQueuePreview(
-    restaurantId,
-    req.query.partySize,
-  );
+  const result = await queueService.getQueuePreview(restaurantId);
   success(res, result);
 });
 
@@ -58,26 +55,10 @@ const removeFromQueue = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
-/** POST /api/queue/staff/call-next — promote the next party (FR09). */
+/** POST /api/queue/staff/call-next — promote the next order (FR09). */
 const callNext = asyncHandler(async (req, res) => {
   const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
   const result = await queueService.callNext(restaurantId);
-  success(res, result);
-});
-
-/** POST /api/queue/staff/:id/notify — re-send "table is ready" (FR06). */
-const notifyReady = asyncHandler(async (req, res) => {
-  const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
-  const entryId = assertObjectId(req.params.id, "entryId");
-  const result = await queueService.notifyReady(restaurantId, entryId);
-  success(res, result);
-});
-
-/** POST /api/queue/staff/:id/seat — seat the party (FR09). */
-const seat = asyncHandler(async (req, res) => {
-  const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
-  const entryId = assertObjectId(req.params.id, "entryId");
-  const result = await queueService.seatParty(restaurantId, entryId);
   success(res, result);
 });
 
@@ -90,7 +71,7 @@ const remove = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
-/** POST /api/queue/staff/:id/preparing — mark parcel as preparing (Sobiyan). */
+/** POST /api/queue/staff/:id/start-preparing — mark parcel as preparing. */
 const markPreparing = asyncHandler(async (req, res) => {
   const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
   const entryId = assertObjectId(req.params.id, "entryId");
@@ -121,8 +102,6 @@ module.exports = {
   getQueue,
   removeFromQueue,
   callNext,
-  notifyReady,
-  seat,
   remove,
   markPreparing,
   markReady,
