@@ -42,6 +42,8 @@ import { colors, radius, shadow, spacing } from '@/theme';
 type AvailabilityFilter = 'all' | 'available' | 'reserved';
 type GuestFilter = 'all' | '2' | '4' | '6+';
 
+const EXPLORE_RESTAURANT_ID = '6abf7767616f406f32e61782';
+
 const LOCATION_IMAGES: Record<string, string> = {
   Courtyard: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
   Front: 'https://images.unsplash.com/photo-1550966871-3ed3cdb5ed0c?auto=format&fit=crop&w=800&q=75',
@@ -116,8 +118,8 @@ export default function ExploreScreen() {
   );
 
   const venues = useMemo(() => venueQuery.data ?? [], [venueQuery.data]);
-  const restaurant = venues[0] ?? null;
-  const restaurantId = restaurant?.id ?? '';
+  const restaurant = venues.find((venue) => venue.id === EXPLORE_RESTAURANT_ID) ?? null;
+  const restaurantId = EXPLORE_RESTAURANT_ID;
 
   // Fetch real tables for this restaurant
   const tablesQuery = useApiQuery(
@@ -211,7 +213,9 @@ export default function ExploreScreen() {
 
   // Restaurants that currently run a virtual queue (FR03).
   const queueEnabledVenues = useMemo(
-    () => venues.filter((venue) => venue.isQueueEnabled),
+    () => venues.filter(
+      (venue) => venue.id === EXPLORE_RESTAURANT_ID && venue.isQueueEnabled,
+    ),
     [venues],
   );
 

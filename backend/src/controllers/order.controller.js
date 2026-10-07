@@ -1,4 +1,4 @@
-const { asyncHandler } = require("../utils/errors");
+const { AppError, asyncHandler } = require("../utils/errors");
 const { success } = require("../utils/response");
 const { assertObjectId } = require("../middleware/validation.middleware");
 const { validateRestaurantScope } = require("../validations/queue.validation");
@@ -10,6 +10,16 @@ const orderService = require("../services/order.service");
  */
 const getKitchenOrders = asyncHandler(async (req, res) => {
   const { restaurantId } = validateRestaurantScope(req.body || {}, req.query);
+  if (
+    req.user.restaurantId &&
+    String(req.user.restaurantId) !== String(restaurantId)
+  ) {
+    throw new AppError(
+      "You do not have permission to access another restaurant.",
+      403,
+      "forbidden",
+    );
+  }
   const result = await orderService.listKitchenOrders(restaurantId, req.query.status);
   success(res, result);
 });
@@ -59,6 +69,12 @@ const deleteOrder = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+const cancelOrder = asyncHandler(async (req, res) => {
+  const id = assertObjectId(req.params.id, "orderId");
+  const result = await orderService.cancelOrder(id, req.user);
+  success(res, result);
+});
+
 module.exports = {
   getKitchenOrders,
   getOrders,
@@ -66,5 +82,5 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
+  cancelOrder,
 };
-

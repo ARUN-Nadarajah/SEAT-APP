@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -12,7 +13,7 @@ import {
   Skeleton,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
-import { apiErrorMessage, fetchMenu } from '@/services/api';
+import { apiErrorMessage, fetchMenu, type MenuItem } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 
 function formatPrice(price: number): string {
@@ -21,11 +22,26 @@ function formatPrice(price: number): string {
 
 /** "A taste of …" menu screen (spec §5). */
 export default function MenuScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, orderType = 'takeaway', reservationId, tableId } =
+    useLocalSearchParams<{ id: string; orderType?: string; reservationId?: string; tableId?: string }>();
+  const [cart, setCart] = useState<Record<string, { item: MenuItem; quantity: number }>>({});
 
   const query = useApiQuery(['menu', id], () => fetchMenu(id!), {
     enabled: Boolean(id),
   });
+  const cartLines = Object.values(cart);
+  const totalItems = cartLines.reduce((sum, line) => sum + line.quantity, 0);
+
+  function changeQuantity(item: MenuItem, delta: number) {
+    const key = item.menuItemId ?? item.id ?? item._id ?? item.name;
+    setCart((current) => {
+      const next = { ...current };
+      const quantity = (next[key]?.quantity ?? 0) + delta;
+      if (quantity <= 0) delete next[key];
+      else next[key] = { item, quantity };
+      return next;
+    });
+  }
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -77,7 +93,10 @@ export default function MenuScreen() {
             {query.data?.data?.categories.map((category) => (
               <Card key={category.name} style={styles.category}>
                 <AppText variant="heading">{category.name}</AppText>
-                {category.items.map((item) => (
+                {category.items.map((item) => {
+                  const key = item.menuItemId ?? item.id ?? item._id ?? item.name;
+                  const quantity = cart[key]?.quantity ?? 0;
+                  return (
                   <View key={item.name} style={styles.item}>
                     <View style={styles.itemBody}>
                       <View style={styles.itemTitleRow}>
@@ -89,14 +108,46 @@ export default function MenuScreen() {
                         <AppText variant="secondary">{item.description}</AppText>
                       ) : null}
                     </View>
-                    <AppText variant="label">{formatPrice(item.price)}</AppText>
+                    <View style={styles.itemActions}>
+                      <AppText variant="label">{formatPrice(item.price)}</AppText>
+                      <View style={styles.stepper}>
+                        <Pressable onPress={() => changeQuantity(item, -1)} style={styles.step}><AppText variant="label">−</AppText></Pressable>
+                        <AppText variant="label">{quantity}</AppText>
+                        <Pressable onPress={() => changeQuantity(item, 1)} style={styles.step}><AppText variant="label">+</AppText></Pressable>
+                      </View>
+                    </View>
                   </View>
-                ))}
+                  );
+                })}
               </Card>
             ))}
           </View>
         )}
       </ScrollView>
+      {totalItems > 0 ? (
+        <View style={styles.cartBar}>
+          <AppText variant="label">{totalItems} item{totalItems === 1 ? '' : 's'} in cart</AppText>
+          <Pressable
+            style={styles.viewCart}
+            onPress={() => router.push({
+              pathname: '/orders/review',
+              params: {
+                restaurantId: id,
+                orderType,
+                reservationId,
+                tableId,
+                cart: JSON.stringify(cartLines.map(({ item, quantity }) => ({
+                  ...item,
+                  menuItemId: item.menuItemId ?? item.id ?? item._id,
+                  quantity,
+                }))),
+              },
+            })}
+          >
+            <AppText variant="button" style={styles.viewCartText}>View cart</AppText>
+          </Pressable>
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -136,4 +187,10 @@ const styles = StyleSheet.create({
   },
   itemBody: { flex: 1, gap: 3 },
   itemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  itemActions: { alignItems: 'flex-end', gap: spacing.sm },
+  stepper: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  step: { width: 36, height: 36, borderRadius: radius.md, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
+  cartBar: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.lg, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  viewCart: { backgroundColor: colors.primary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.lg },
+  viewCartText: { color: colors.textOnPrimary },
 });

@@ -46,16 +46,24 @@ function logSimulatedChannel(channel, recipient, title) {
  * @returns {Promise<object|null>} the stored notification, or null when the
  *   user has notifications disabled for every channel.
  */
-async function notify({
-  userId,
-  type = "general",
-  title,
-  body,
-  route = "",
-  data = {},
-  channel = "push",
-  referenceId = null,
-}) {
+async function notify(input, legacyType, legacyTitle, legacyBody) {
+  const {
+    userId,
+    type = "general",
+    title,
+    body,
+    route = "",
+    data = {},
+    channel = "push",
+    referenceId = null,
+  } = input && typeof input === "object"
+    ? input
+    : {
+        userId: input,
+        type: legacyType || "general",
+        title: legacyTitle,
+        body: legacyBody,
+      };
   if (!userId || !title || !body) return null;
 
   const user = await User.findById(userId).lean();

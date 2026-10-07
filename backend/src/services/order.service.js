@@ -4,22 +4,26 @@ const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
 const Reservation = require("../models/Reservation");
 const User = require("../models/User");
+const QueueEntry = require("../models/QueueEntry");
 
 const { AppError } = require("../utils/errors");
 const { notify, notifyRestaurantStaff } = require("./notification.service");
-const { emitOrderReady, emitOrderUpdated } = require("../realtime/events");
+const {
+  emitOrderReady,
+  emitOrderUpdated,
+  emitQueueUpdated,
+} = require("../realtime/events");
 
 const VALID_STATUSES = [
-  "pending",
-  "confirmed",
+  "placed",
   "preparing",
   "ready",
   "served",
-  "completed",
+  "collected",
   "cancelled",
 ];
 
-const KITCHEN_ACTIVE_STATUSES = ["pending", "confirmed", "preparing", "ready"];
+const KITCHEN_ACTIVE_STATUSES = ["placed", "preparing", "ready"];
 
 /** Generate friendly order / parcel token (e.g., ORD-2841 or P-1042). */
 function generateOrderNumber(orderType = "dine_in") {
@@ -35,24 +39,23 @@ function shapeOrder(order) {
 
   return {
     id: order._id,
-    orderNumber:
-      order.orderNumber ||
-      `${order.orderType === "takeaway" ? "P" : "ORD"}-${String(order._id).slice(-4).toUpperCase()}`,
+    orderCode: order.orderCode,
     restaurantId: order.restaurantId,
-    orderType: order.orderType || "dine_in",
+    orderType: order.orderType || "dine-in",
     status: order.status,
-    tableNumber:
-      order.tableNumber || (reservation && reservation.tableNumber ? reservation.tableNumber : ""),
-    parcelToken: order.parcelToken || (order.orderType === "takeaway" ? order.orderNumber : ""),
+    tableId: order.tableId || reservation?.tableId || null,
+    tableNumber: reservation?.tableNumber || "",
+    queueEntryId: order.queueEntryId || null,
     items: (order.items || []).map((item) => ({
-      foodId: item.foodId,
+      menuItemId: item.menuItemId,
       name: item.name,
+      price: item.price,
       quantity: item.quantity,
-      unitPrice: item.unitPrice,
-      subtotal: item.subtotal,
+      note: item.note || "",
+      totalAmount: item.totalAmount,
     })),
     totalAmount: order.totalAmount,
-    specialInstructions: order.specialInstructions || "",
+    notes: order.notes || order.note || "",
     user: user && typeof user === "object"
       ? {
           id: user._id,
@@ -90,51 +93,97 @@ async function createOrder(userId, data) {
 
   const items = data.items.map((item) => {
     const qty = Number(item.quantity) || 1;
-    const price = Number(item.unitPrice) || 0;
+    const menuItem = restaurant.menuItems.find(
+      (candidate) => String(candidate._id) === String(item.menuItemId || item.foodId),
+    );
+    if (!menuItem) {
+      throw new AppError("Every order item must be on the restaurant menu.", 400, "invalid_menu_item");
+    }
+    const price = menuItem.price;
     return {
-      foodId: item.foodId,
-      name: String(item.name || "Item").trim(),
+      menuItemId: menuItem._id,
+      name: menuItem.name,
+      price,
       quantity: qty,
-      unitPrice: price,
-      subtotal: Number(item.subtotal) || qty * price,
+      note: String(item.note || "").trim(),
+      totalAmount: qty * price,
     };
   });
 
-  const calculatedTotal = items.reduce((acc, curr) => acc + curr.subtotal, 0);
-  const totalAmount = data.totalAmount !== undefined ? Number(data.totalAmount) : calculatedTotal;
-  const orderType = data.orderType === "takeaway" ? "takeaway" : "dine_in";
-  const orderNumber = data.orderNumber || generateOrderNumber(orderType);
-  const parcelToken = orderType === "takeaway" ? data.parcelToken || orderNumber : "";
+  const calculatedTotal = items.reduce((acc, curr) => acc + curr.totalAmount, 0);
+  const totalAmount = calculatedTotal;
+  const orderType = data.orderType === "takeaway" ? "takeaway" : "dine-in";
+  const orderCode = data.orderCode || data.orderNumber || generateOrderNumber(orderType);
+
+  let reservation = null;
+  if (orderType === "dine-in") {
+    if (!data.reservationId) {
+      throw new AppError("A checked-in reservation is required for dine-in orders.", 400, "reservation_required");
+    }
+    reservation = await Reservation.findOne({
+      _id: data.reservationId,
+      userId,
+      restaurantId: restaurant._id,
+      status: "checked-in",
+    }).lean();
+    if (!reservation) {
+      throw new AppError("Dine-in orders require your checked-in reservation at this restaurant.", 409, "reservation_not_checked_in");
+    }
+  }
 
   const order = await Order.create({
-    orderNumber,
+    orderCode,
     userId,
     restaurantId: restaurant._id,
-    reservationId: data.reservationId || null,
-    tableNumber: data.tableNumber || "",
-    parcelToken,
+    queueEntryId: data.queueEntryId || null,
+    reservationId: reservation?._id || null,
+    tableId: data.tableId || reservation?.tableId || null,
     items,
     totalAmount,
-    status: "pending",
+    status: "placed",
     orderType,
-    specialInstructions: data.specialInstructions || "",
+    notes: data.notes || data.note || data.specialInstructions || "",
   });
+
+  if (orderType === "takeaway") {
+    const activeCount = await QueueEntry.countDocuments({
+      restaurantId: restaurant._id,
+      status: { $in: ["waiting", "preparing", "ready"] },
+    });
+    const queueEntry = await QueueEntry.create({
+      queueCode: `Q-${crypto.randomInt(1000, 10000)}`,
+      userId,
+      restaurantId: restaurant._id,
+      orderId: order._id,
+      position: activeCount + 1,
+      status: "waiting",
+      parcelToken: orderCode,
+      orderSummary: items.map((item) => `${item.quantity} × ${item.name}`).join(", "),
+    });
+    order.queueEntryId = queueEntry._id;
+    await order.save();
+    emitQueueUpdated(restaurant._id, {
+      queueEntryId: queueEntry._id,
+      orderId: order._id,
+      status: "waiting",
+    });
+  }
 
   await notifyRestaurantStaff(restaurant._id, {
     type: "order",
     title: "New Order Received",
-    body: `New ${orderType === "takeaway" ? "takeaway" : "dine-in"} order ${orderNumber} received (${items.length} items).`,
+    body: `New ${orderType === "takeaway" ? "takeaway" : "dine-in"} order ${orderCode} received (${items.length} items).`,
     route: "/staff",
     data: {
       orderId: String(order._id),
-      orderNumber,
+      orderCode,
       orderType,
     },
   });
 
   emitOrderUpdated(restaurant._id, {
     orderId: order._id,
-    orderNumber,
+    orderCode,
     status: order.status,
     orderType,
   });
@@ -266,12 +315,35 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
   order.status = newStatus;
   await order.save();
 
+  if (order.orderType === "takeaway" && order.queueEntryId) {
+    const queueStatus = {
+      preparing: "preparing",
+      ready: "ready",
+      collected: "collected",
+      cancelled: "cancelled",
+    }[newStatus];
+    if (queueStatus) {
+      const update = { status: queueStatus };
+      if (queueStatus === "ready") update.readyAt = new Date();
+      if (queueStatus === "collected") update.collectedAt = new Date();
+      await QueueEntry.updateOne(
+        { _id: order.queueEntryId, restaurantId: order.restaurantId },
+        { $set: update },
+      );
+      emitQueueUpdated(order.restaurantId, {
+        queueEntryId: order.queueEntryId,
+        orderId: order._id,
+        status: queueStatus,
+      });
+    }
+  }
+
   if (newStatus === "ready") {
     const isTakeaway = order.orderType === "takeaway";
-    const parcelRef = order.parcelToken || order.orderNumber || "your order";
+    const parcelRef = order.orderCode || "your order";
     const body = isTakeaway
       ? `Your takeaway order ${parcelRef} is ready for collection at the counter!`
-      : `Your food order ${order.orderNumber} is ready and is being served to table ${order.tableNumber || "assigned"}.`;
+      : `Your food order ${order.orderCode} is ready and is being served.`;
 
     await notify({
       userId: order.userId,
@@ -281,7 +353,7 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
       route: "/orders",
       data: {
         orderId: String(order._id),
-        orderNumber: order.orderNumber,
+        orderCode: order.orderCode,
         status: order.status,
       },
       channel: "push",
@@ -289,7 +361,7 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
 
     emitOrderReady(order.restaurantId, {
       orderId: order._id,
-      orderNumber: order.orderNumber,
+      orderCode: order.orderCode,
       status: order.status,
       orderType: order.orderType,
       userId: String(order.userId),
@@ -298,7 +370,7 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
 
   emitOrderUpdated(order.restaurantId, {
     orderId: order._id,
-    orderNumber: order.orderNumber,
+    orderCode: order.orderCode,
     status: order.status,
     orderType: order.orderType,
   });
@@ -317,6 +389,29 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
 /**
  * Delete / cancel order (Staff/manager).
  */
+async function cancelOrder(orderId, customerUser) {
+  const order = await Order.findOne({ _id: orderId, userId: customerUser._id });
+  if (!order) throw new AppError("Order not found.", 404, "not_found");
+  if (order.status !== "placed") {
+    throw new AppError("Only placed orders can be cancelled.", 409, "order_not_cancellable");
+  }
+  order.status = "cancelled";
+  await order.save();
+  if (order.orderType === "takeaway" && order.queueEntryId) {
+    await QueueEntry.updateOne(
+      { _id: order.queueEntryId, userId: order.userId, restaurantId: order.restaurantId },
+      { $set: { status: "cancelled", leftAt: new Date() } },
+    );
+    emitQueueUpdated(order.restaurantId, {
+      queueEntryId: order.queueEntryId,
+      orderId: order._id,
+      status: "cancelled",
+    });
+  }
+  emitOrderUpdated(order.restaurantId, { orderId: order._id, orderCode: order.orderCode, status: order.status });
+  return { message: "Order cancelled successfully.", data: { order: shapeOrder(order.toObject()) } };
+}
+
 async function deleteOrder(orderId, staffUser) {
   const order = await Order.findById(orderId);
   if (!order) {
@@ -333,9 +428,21 @@ async function deleteOrder(orderId, staffUser) {
   order.status = "cancelled";
   await order.save();
 
+  if (order.orderType === "takeaway" && order.queueEntryId) {
+    await QueueEntry.updateOne(
+      { _id: order.queueEntryId, restaurantId: order.restaurantId },
+      { $set: { status: "cancelled", leftAt: new Date() } },
+    );
+    emitQueueUpdated(order.restaurantId, {
+      queueEntryId: order.queueEntryId,
+      orderId: order._id,
+      status: "cancelled",
+    });
+  }
+
   emitOrderUpdated(order.restaurantId, {
     orderId: order._id,
-    orderNumber: order.orderNumber,
+    orderCode: order.orderCode,
     status: "cancelled",
   });
 
@@ -352,7 +459,7 @@ module.exports = {
   getOrderById,
   updateOrderStatus,
   deleteOrder,
+  cancelOrder,
   VALID_STATUSES,
   KITCHEN_ACTIVE_STATUSES,
 };
-

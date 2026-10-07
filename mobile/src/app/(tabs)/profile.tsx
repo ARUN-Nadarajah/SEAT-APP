@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Linking, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -121,6 +122,12 @@ export default function ProfileScreen() {
         </Card>
 
         {/* Edit details */}
+        <Card>
+          <SectionTitle>Orders</SectionTitle>
+          <AppText variant="secondary">View current and past takeaway and dine-in orders.</AppText>
+          <Button label="My orders" variant="secondary" onPress={() => router.push('/orders')} />
+        </Card>
+
         <Card>
           <SectionTitle>Your details</SectionTitle>
           <Field label="Full name" value={name} onChangeText={setName} autoCapitalize="words" />

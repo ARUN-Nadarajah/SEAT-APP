@@ -14,7 +14,6 @@ import {
   LastUpdated,
   SectionTitle,
   Skeleton,
-  useFeedback,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
 import { useAuth } from '@/features/auth/auth-context';
@@ -22,7 +21,6 @@ import {
   apiErrorMessage,
   fetchQueuePreview,
   fetchRestaurants,
-  joinQueue,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
 import { consumePendingQueueRestaurant } from '@/services/queue-navigation';
@@ -35,7 +33,6 @@ import { consumePendingQueueRestaurant } from '@/services/queue-navigation';
  */
 export default function JoinQueueScreen() {
   const { user } = useAuth();
-  const { showToast } = useFeedback();
   const [selectedRestaurantId] = useState(() => consumePendingQueueRestaurant());
 
   const defaultVenueQuery = useApiQuery(
@@ -51,7 +48,6 @@ export default function JoinQueueScreen() {
 
   const [guestName, setGuestName] = useState(user?.name ?? '');
   const [guestPhone, setGuestPhone] = useState(user?.phone ?? '');
-  const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const preview = useApiQuery(
@@ -62,26 +58,9 @@ export default function JoinQueueScreen() {
 
   const data = preview.data?.data;
 
-  async function onJoin() {
+  function onChooseFood() {
     if (!restaurantId) return;
-    setJoining(true);
-    setError(null);
-
-    try {
-      await joinQueue({
-        restaurantId,
-        guestName: guestName.trim(),
-        guestPhone: guestPhone.trim(),
-      });
-      showToast('Your spot is saved.', 'success');
-      router.replace('/(tabs)/queue');
-    } catch (caught) {
-      const message = apiErrorMessage(caught);
-      setError(message);
-      showToast(message, 'error');
-    } finally {
-      setJoining(false);
-    }
+    router.push({ pathname: '/restaurant/[id]/menu', params: { id: restaurantId, orderType: 'takeaway' } });
   }
 
   return (
@@ -172,9 +151,8 @@ export default function JoinQueueScreen() {
 
       <View style={styles.footer}>
         <Button
-          label="Join takeaway queue"
-          onPress={onJoin}
-          loading={joining}
+          label="Choose food & join queue"
+          onPress={onChooseFood}
           disabled={preview.isLoading}
           testID="join-queue-submit"
         />

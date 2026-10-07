@@ -100,7 +100,7 @@ export default function StaffDashboardScreen() {
   const [fieldPicker, setFieldPicker] = useState<'capacity' | 'type' | 'status' | null>(null);
 
   const [bookingSubFilter, setBookingSubFilter] = useState<'all' | 'cancellation_pending'>('all');
-  const [kitchenFilter, setKitchenFilter] = useState<'all' | 'pending' | 'preparing' | 'ready'>('all');
+  const [kitchenFilter, setKitchenFilter] = useState<'all' | 'placed' | 'preparing' | 'ready'>('all');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectBookingId, setRejectBookingId] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState('');
@@ -969,7 +969,7 @@ export default function StaffDashboardScreen() {
           ) : (
             <>
               <View style={styles.filterRow}>
-                {(['all', 'pending', 'preparing', 'ready'] as const).map((filter) => (
+                {(['all', 'placed', 'preparing', 'ready'] as const).map((filter) => (
                   <Pressable
                     key={filter}
                     onPress={() => setKitchenFilter(filter)}
@@ -988,7 +988,7 @@ export default function StaffDashboardScreen() {
                     >
                       {filter === 'all'
                         ? `All (${kitchen.data?.data?.length ?? 0})`
-                        : `${filter.charAt(0).toUpperCase() + filter.slice(1)} (${
+                        :                         `${filter === 'placed' ? 'New' : filter.charAt(0).toUpperCase() + filter.slice(1)} (${
                             kitchen.data?.data?.filter((o) => o.status === filter).length ?? 0
                           })`}
                     </AppText>
@@ -1009,7 +1009,7 @@ export default function StaffDashboardScreen() {
                       <View style={styles.bookingTop}>
                         <View style={styles.bookingTitleBlock}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                            <AppText variant="heading">{order.orderNumber || 'ORD-0000'}</AppText>
+                            <AppText variant="heading">{order.orderCode || order.orderNumber || 'ORD-0000'}</AppText>
                             <Badge
                               label={order.orderType === 'takeaway' ? 'Takeaway' : (order.tableNumber ? `Table ${order.tableNumber}` : 'Dine-In')}
                               tone={order.orderType === 'takeaway' ? 'warning' : 'neutral'}
@@ -1032,22 +1032,22 @@ export default function StaffDashboardScreen() {
                               {item.quantity}x {item.name}
                             </AppText>
                             <AppText variant="secondary">
-                              Rs. {item.subtotal || item.unitPrice * item.quantity}
+                              LKR {item.totalAmount || item.price * item.quantity}
                             </AppText>
                           </View>
                         ))}
                       </View>
 
-                      {order.specialInstructions ? (
+                      {order.notes ? (
                         <View style={styles.notesBox}>
                           <AppText variant="caption" style={{ color: colors.warning, fontWeight: '600' }}>
-                            Note: {order.specialInstructions}
+                            Note: {order.notes}
                           </AppText>
                         </View>
                       ) : null}
 
                       <View style={styles.kitchenActions}>
-                        {order.status === 'pending' || order.status === 'confirmed' ? (
+                        {order.status === 'placed' ? (
                           <Button
                             label="Start Preparing"
                             onPress={() => onUpdateOrderStatus(order.id, 'preparing')}
@@ -1068,7 +1068,7 @@ export default function StaffDashboardScreen() {
                             onPress={() =>
                               onUpdateOrderStatus(
                                 order.id,
-                                order.orderType === 'takeaway' ? 'completed' : 'served',
+                                order.orderType === 'takeaway' ? 'collected' : 'served',
                               )
                             }
                             style={{ flex: 1 }}

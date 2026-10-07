@@ -222,6 +222,10 @@ Queue           GET    /queue/preview            POST /queue/join
                 POST   /queue/staff/:id/notify   POST /queue/staff/:id/seat
                 POST   /queue/staff/:id/remove
 
+Orders          POST   /orders                  GET  /orders
+                GET    /orders/:id              POST /orders/:id/cancel
+                GET    /orders/kitchen           PATCH /orders/:id/status
+
 Tables          GET    /tables                   POST /tables
                 PATCH  /tables/:id/status
 
@@ -248,7 +252,23 @@ socket.emit('queue:subscribe', { restaurantId });
 socket.on('queue:updated', (payload) => refreshQueue(payload));
 socket.on('queue:ready',    (payload) => showTableReady(payload));
 socket.on('table:updated',  (payload) => refreshFloor(payload));
+socket.emit('order:subscribe', { restaurantId });
+socket.on('order:updated', (payload) => refreshOrders(payload));
 ```
+
+Order statuses are `placed`, `preparing`, `ready`, `served`, `collected`, and
+`cancelled`. A takeaway order creates its queue entry atomically at the
+application boundary and keeps `placed → waiting`, `preparing → preparing`,
+`ready → ready`, and `collected → collected` synchronized. Dine-in orders
+require the authenticated customer to have a reservation in `checked-in`
+status; the reservation supplies the table link.
+
+To test the takeaway path manually, sign in as `customer@seat.lk`, open a
+restaurant, choose **Takeaway · join queue**, add menu items, review, and place
+the order. Keep a second session signed in as `staff@seat.lk`, open **Kitchen**,
+then use **Start preparing**, **Mark ready**, and **Mark served/collected**.
+The customer's Queue Tracker and the staff Queue tab update through
+`order:updated` and `queue:updated`.
 
 Wait-time estimate = `parties ahead × the restaurant's average seating
 duration`, divided by the tables that can absorb demand, then banded into the

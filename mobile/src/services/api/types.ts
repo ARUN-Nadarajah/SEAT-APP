@@ -84,6 +84,9 @@ export type RestaurantInfo = {
 };
 
 export type MenuItem = {
+  _id?: string;
+  id?: string;
+  menuItemId?: string;
   name: string;
   description: string;
   price: number;
@@ -273,26 +276,30 @@ export type HourlyBucket = {
 };
 
 export type OrderStatus =
-  | 'pending'
-  | 'confirmed'
+  | 'placed'
   | 'preparing'
   | 'ready'
   | 'served'
-  | 'completed'
-  | 'cancelled';
+  | 'collected'
+  | 'cancelled'
+  | 'pending'
+  | 'confirmed'
+  | 'completed';
 
-export type OrderType = 'dine_in' | 'takeaway';
+export type OrderType = 'dine-in' | 'takeaway' | 'dine_in';
 
 export type OrderItem = {
-  foodId: string;
+  menuItemId: string;
   name: string;
   quantity: number;
-  unitPrice: number;
-  subtotal: number;
+  price: number;
+  note?: string;
+  totalAmount?: number;
 };
 
 export type Order = {
   id: string;
+  orderCode: string;
   orderNumber?: string;
   userId?:
     | string
@@ -314,13 +321,14 @@ export type Order = {
         tableNumber?: string;
       }
     | null;
+  tableId?: string;
   tableNumber?: string;
-  parcelToken?: string;
+  queueEntryId?: string | null;
   items: OrderItem[];
   totalAmount: number;
   status: OrderStatus;
   orderType: OrderType;
-  specialInstructions?: string;
+  notes?: string;
   user?: {
     id?: string;
     name: string;
