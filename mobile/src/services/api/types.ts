@@ -244,6 +244,7 @@ export type TableStatus = 'available' | 'occupied' | 'reserved' | 'maintenance';
 export type Table = {
   id: string;
   _id?: string;
+  restaurantId?: string;
   tableNumber: string;
   capacity: number;
   location: string;
