@@ -37,12 +37,11 @@ import {
 } from '@/services/api';
 import { onQueueUpdated, onTableUpdated } from '@/services/realtime/socket';
 import { setPendingQueueRestaurant } from '@/services/queue-navigation';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, shadow, spacing } from '@/theme';
 
 type AvailabilityFilter = 'all' | 'available' | 'reserved';
 type GuestFilter = 'all' | '2' | '4' | '6+';
-
-const EXPLORE_RESTAURANT_ID = '6abf7767616f406f32e61782';
 
 const LOCATION_IMAGES: Record<string, string> = {
   Courtyard: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=800&q=75',
@@ -240,7 +239,7 @@ export default function ExploreScreen() {
     router.push({
       pathname: '/reserve',
       params: {
-        restaurantId: restaurant.id,
+        restaurantId: EXPLORE_RESTAURANT_ID,
         tableId: table.id || table._id || '',
         tableNumber: formatTableLabel(table.tableNumber),
         partySize: String(table.capacity),

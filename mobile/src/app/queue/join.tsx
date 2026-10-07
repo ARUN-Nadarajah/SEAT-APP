@@ -60,7 +60,7 @@ export default function JoinQueueScreen() {
 
   function onChooseFood() {
     if (!restaurantId) return;
-    router.push({ pathname: '/restaurant/[id]/menu', params: { id: restaurantId, orderType: 'takeaway' } });
+    router.push({ pathname: '/restaurant/menu', params: { orderType: 'takeaway' } });
   }
 
   return (

@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -107,7 +107,7 @@ export default function QueueScreen() {
           <Button
             label="Contact restaurant"
             variant="secondary"
-            onPress={() => router.push(`/restaurant/${entry.restaurantId}`)}
+            onPress={() => router.push('/restaurant' as Href)}
           />
         ) : null}
       </ScrollView>

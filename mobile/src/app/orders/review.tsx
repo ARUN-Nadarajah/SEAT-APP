@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText, Button, Card, useFeedback } from '@/components/ui';
 import { apiErrorMessage, createOrder, type CreateOrderInput, type MenuItem } from '@/services/api';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, spacing } from '@/theme';
 
 type CartLine = MenuItem & { quantity: number; note?: string };
@@ -22,7 +23,7 @@ export default function ReviewOrderScreen() {
     setPlacing(true);
     try {
       const input: CreateOrderInput = {
-        restaurantId: params.restaurantId,
+        restaurantId: params.restaurantId || EXPLORE_RESTAURANT_ID,
         orderType: params.orderType === 'dine-in' ? 'dine-in' : 'takeaway',
         reservationId: params.reservationId,
         tableId: params.tableId,
@@ -37,7 +38,9 @@ export default function ReviewOrderScreen() {
       };
       const result = await createOrder(input);
       showToast('Order placed successfully.', 'success');
-      router.replace({ pathname: '/orders/[id]', params: { id: result.data?.order.id } });
+      const orderId = result.data?.order.id;
+      if (!orderId) throw new Error('The order was created but no order ID was returned.');
+      router.replace({ pathname: '/orders/[id]', params: { id: orderId } });
     } catch (error) { showToast(apiErrorMessage(error), 'error'); }
     finally { setPlacing(false); }
   }

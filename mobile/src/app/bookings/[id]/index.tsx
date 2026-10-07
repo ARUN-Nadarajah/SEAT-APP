@@ -167,9 +167,8 @@ export default function ReservationDetailsScreen() {
               label="Order food"
               onPress={() =>
                 router.push({
-                  pathname: '/restaurant/[id]/menu',
+                  pathname: '/restaurant/menu',
                   params: {
-                    id: booking.restaurant?.id,
                     orderType: 'dine-in',
                     reservationId: booking.id,
                     tableId: (booking as Booking & { tableId?: string }).tableId,

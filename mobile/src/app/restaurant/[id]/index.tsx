@@ -18,6 +18,7 @@ import { useApiQuery } from '@/hooks/useApi';
 import { apiErrorMessage, fetchRestaurant } from '@/services/api';
 import { colors, radius, shadow, spacing } from '@/theme';
 import { setPendingQueueRestaurant } from '@/services/queue-navigation';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 
 /**
  * Restaurant Details (spec §5 + FR03).
@@ -28,12 +29,13 @@ import { setPendingQueueRestaurant } from '@/services/queue-navigation';
  */
 export default function RestaurantDetailsScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const restaurantId = id || EXPLORE_RESTAURANT_ID;
   const [showQueueHelp, setShowQueueHelp] = useState(false);
 
   const query = useApiQuery(
-    ['restaurant', id],
-    () => fetchRestaurant(id!, { partySize: 2 }),
-    { enabled: Boolean(id) },
+    ['restaurant', restaurantId],
+    () => fetchRestaurant(restaurantId, { partySize: 2 }),
+    { enabled: Boolean(restaurantId) },
   );
 
   if (query.isLoading) {
@@ -141,7 +143,7 @@ export default function RestaurantDetailsScreen() {
         <View style={styles.linkRow}>
           <Pressable
             style={styles.linkCard}
-            onPress={() => router.push(`/restaurant/${restaurant.id}/menu`)}
+            onPress={() => router.push('/restaurant/menu')}
             accessibilityRole="button"
             accessibilityLabel="Explore the menu"
           >
@@ -152,7 +154,7 @@ export default function RestaurantDetailsScreen() {
 
           <Pressable
             style={styles.linkCard}
-            onPress={() => router.push(`/restaurant/${restaurant.id}/location`)}
+            onPress={() => router.push('/restaurant/location')}
             accessibilityRole="button"
             accessibilityLabel="Plan your arrival"
           >

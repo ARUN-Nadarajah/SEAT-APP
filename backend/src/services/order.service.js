@@ -2,6 +2,7 @@ const crypto = require("crypto");
 
 const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
+const Food = require("../models/Food");
 const Reservation = require("../models/Reservation");
 const User = require("../models/User");
 const QueueEntry = require("../models/QueueEntry");
@@ -91,9 +92,17 @@ async function createOrder(userId, data) {
     throw new AppError("Order must contain at least one item.", 400, "validation_error");
   }
 
+  let menuItems = restaurant.menuItems || [];
+  if (menuItems.length === 0) {
+    menuItems = await Food.find({
+      restaurantId: restaurant._id,
+      isAvailable: true,
+    }).lean();
+  }
+
   const items = data.items.map((item) => {
     const qty = Number(item.quantity) || 1;
-    const menuItem = restaurant.menuItems.find(
+    const menuItem = menuItems.find(
       (candidate) => String(candidate._id) === String(item.menuItemId || item.foodId),
     );
     if (!menuItem) {

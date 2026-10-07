@@ -14,6 +14,7 @@ import {
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
 import { apiErrorMessage, fetchMenu, type MenuItem } from '@/services/api';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, spacing } from '@/theme';
 
 function formatPrice(price: number): string {
@@ -26,8 +27,9 @@ export default function MenuScreen() {
     useLocalSearchParams<{ id: string; orderType?: string; reservationId?: string; tableId?: string }>();
   const [cart, setCart] = useState<Record<string, { item: MenuItem; quantity: number }>>({});
 
-  const query = useApiQuery(['menu', id], () => fetchMenu(id!), {
-    enabled: Boolean(id),
+  const restaurantId = id || EXPLORE_RESTAURANT_ID;
+  const query = useApiQuery(['menu', restaurantId], () => fetchMenu(restaurantId), {
+    enabled: Boolean(restaurantId),
   });
   const cartLines = Object.values(cart);
   const totalItems = cartLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -132,7 +134,7 @@ export default function MenuScreen() {
             onPress={() => router.push({
               pathname: '/orders/review',
               params: {
-                restaurantId: id,
+                restaurantId,
                 orderType,
                 reservationId,
                 tableId,

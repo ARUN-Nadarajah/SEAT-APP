@@ -55,6 +55,7 @@ import {
   onOrderUpdated,
   onOrderReady,
 } from '@/services/realtime/socket';
+import { EXPLORE_RESTAURANT_ID } from '@/services/restaurant-config';
 import { colors, radius, spacing } from '@/theme';
 
 type Panel = 'tables' | 'reservations' | 'queue' | 'kitchen';
@@ -106,17 +107,13 @@ export default function StaffDashboardScreen() {
   const [rejectComment, setRejectComment] = useState('');
   const [isSubmittingReject, setIsSubmittingReject] = useState(false);
 
-  // Resolve the venue this staff member works at (spec §2).
+  // This deployment has one active restaurant for customer and staff flows.
   const venueQuery = useApiQuery(['staff-venue', user?.restaurantId], async () => {
-    if (user?.restaurantId) {
-      const all = await fetchRestaurants({ limit: 100 });
-      return all.data?.find((r) => r.id === user.restaurantId) ?? all.data?.[0] ?? null;
-    }
     const all = await fetchRestaurants({ limit: 100 });
-    return all.data?.[0] ?? null;
+    return all.data?.find((r) => r.id === EXPLORE_RESTAURANT_ID) ?? null;
   });
 
-  const restaurantId = venueQuery.data?.id ?? user?.restaurantId ?? '';
+  const restaurantId = EXPLORE_RESTAURANT_ID;
 
   const tables = useApiQuery(
     ['tables', restaurantId],
