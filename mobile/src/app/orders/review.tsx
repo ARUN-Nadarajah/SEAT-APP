@@ -40,7 +40,11 @@ export default function ReviewOrderScreen() {
       showToast('Order placed successfully.', 'success');
       const orderId = result.data?.order.id;
       if (!orderId) throw new Error('The order was created but no order ID was returned.');
-      router.replace({ pathname: '/orders/[id]', params: { id: orderId } });
+      if (input.orderType === 'takeaway') {
+        router.replace('/(tabs)/queue');
+      } else {
+        router.replace({ pathname: '/orders/[id]', params: { id: orderId } });
+      }
     } catch (error) { showToast(apiErrorMessage(error), 'error'); }
     finally { setPlacing(false); }
   }
