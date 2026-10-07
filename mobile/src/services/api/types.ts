@@ -206,6 +206,7 @@ export type QueueEntry = {
   guestName: string;
   joinedAt: string;
   readyAt?: string | null;
+  pickupNotifiedAt?: string | null;
   collectedAt?: string | null;
 } & LastUpdated;
 
@@ -235,6 +236,8 @@ export type StaffQueueRow = {
   guestPhone: string;
   joinedAt: string;
   readyAt?: string | null;
+  pickupNotifiedAt?: string | null;
+  orderStatus?: OrderStatus | null;
   collectedAt?: string | null;
   ordersAhead: number;
 };

@@ -1,10 +1,15 @@
 const QueueEntry = require("../models/QueueEntry");
+const Order = require("../models/Order");
 const Restaurant = require("../models/Restaurant");
 const User = require("../models/User");
 
 const { AppError } = require("../utils/errors");
 const { notify } = require("./notification.service");
-const { emitQueueUpdated, emitQueueReady } = require("../realtime/events");
+const {
+  emitQueueUpdated,
+  emitQueueReady,
+  emitOrderUpdated,
+} = require("../realtime/events");
 
 const ACTIVE_STATUSES = ["waiting", "preparing", "ready", "notified"];
 
@@ -12,9 +17,14 @@ async function normalizeLegacyEntry(entry) {
   if (entry?.status !== "notified") return entry;
   entry.status = "ready";
   entry.readyAt = entry.readyAt || new Date();
+  entry.pickupNotifiedAt = entry.pickupNotifiedAt || entry.readyAt;
   await QueueEntry.updateOne(
     { _id: entry._id },
-    { status: "ready", readyAt: entry.readyAt },
+    {
+      status: "ready",
+      readyAt: entry.readyAt,
+      pickupNotifiedAt: entry.pickupNotifiedAt,
+    },
   );
   return entry;
 }
@@ -39,6 +49,7 @@ async function activeEntries(restaurantId) {
   })
     .sort({ joinedAt: 1 })
     .populate("userId", "name phone email")
+    .populate("orderId", "status orderType")
     .lean();
 }
 
@@ -73,7 +84,8 @@ function shapeStaffEntry(entry) {
     id: entry._id,
     queueCode: entry.queueCode,
     parcelToken: entry.parcelToken || entry.queueCode,
-    orderId: entry.orderId || null,
+    orderId: entry.orderId?._id || entry.orderId || null,
+    orderStatus: entry.orderId?.status || null,
     orderSummary: entry.orderSummary || "",
     position: entry.position,
     ordersAhead: Math.max(0, (entry.position || 1) - 1),
@@ -84,22 +96,24 @@ function shapeStaffEntry(entry) {
     guestPhone: entry.guestPhone || user?.phone || "",
     joinedAt: entry.joinedAt,
     readyAt: entry.readyAt,
+    pickupNotifiedAt: entry.pickupNotifiedAt,
     collectedAt: entry.collectedAt,
   };
 }
 
 function shapeCustomerEntry(entry, restaurant, ordersAhead) {
   const stage =
-    entry.status === "ready"
+    entry.status === "ready" && entry.pickupNotifiedAt
       ? "ready"
       : entry.status === "preparing"
+        || entry.status === "ready"
         ? "preparing"
         : "joined";
   return {
     id: entry._id,
     queueCode: entry.queueCode,
     parcelToken: entry.parcelToken || entry.queueCode,
-    orderId: entry.orderId || null,
+    orderId: entry.orderId?._id || entry.orderId || null,
     restaurantId: entry.restaurantId,
     restaurant: restaurant
       ? {
@@ -119,6 +133,7 @@ function shapeCustomerEntry(entry, restaurant, ordersAhead) {
     guestName: entry.guestName,
     joinedAt: entry.joinedAt,
     readyAt: entry.readyAt,
+    pickupNotifiedAt: entry.pickupNotifiedAt,
     collectedAt: entry.collectedAt,
     lastUpdated: new Date().toISOString(),
   };
@@ -167,7 +182,7 @@ async function joinQueue(userId, payload) {
     body: `${restaurant.name}: your parcel is in the queue.`,
     route: "/queue",
     data: { queueCode: entry.queueCode },
-    channel: "push",
+    channel: "email",
   });
   return { message: "Your takeaway order is in the queue.", data };
 }
@@ -239,14 +254,21 @@ async function markPreparing(restaurantId, entryId) {
 }
 
 async function markReady(restaurantId, entryId) {
-  const entryBefore = await findEntry(restaurantId, entryId);
-  const result = await transition(
-    restaurantId,
-    entryId,
-    entryBefore.status === "notified" ? "notified" : "preparing",
-    "ready",
-  );
   const entry = await findEntry(restaurantId, entryId);
+  if (entry.status !== "ready") {
+    throw new AppError("Order must be marked ready by the kitchen first.", 409, "order_not_ready");
+  }
+  if (entry.pickupNotifiedAt) {
+    throw new AppError("Customer has already been notified.", 409, "pickup_already_notified");
+  }
+  entry.pickupNotifiedAt = new Date();
+  await entry.save();
+  const snapshot = await recomputePositions(restaurantId);
+  emitQueueUpdated(restaurantId, {
+    queueLength: snapshot.length,
+    entryId: entry._id,
+    status: entry.status,
+  });
   const restaurant = await Restaurant.findById(restaurantId).lean();
   await notify({
     userId: entry.userId,
@@ -255,7 +277,7 @@ async function markReady(restaurantId, entryId) {
     body: `${restaurant?.name || "SEAT"}: collect parcel ${entry.queueCode} at the counter.`,
     route: "/queue/ready",
     data: { queueCode: entry.queueCode },
-    channel: "push",
+    channel: "email",
   });
   emitQueueReady(restaurantId, {
     entryId: entry._id,
@@ -263,11 +285,34 @@ async function markReady(restaurantId, entryId) {
     queueCode: entry.queueCode,
     restaurantName: restaurant?.name || "",
   });
-  return { ...result, message: "Customer notified that the order is ready." };
+  return {
+    message: "Customer notified that the order is ready.",
+    data: shapeStaffEntry(entry),
+  };
 }
 
 async function markCollected(restaurantId, entryId) {
-  return transition(restaurantId, entryId, "ready", "collected");
+  const entry = await findEntry(restaurantId, entryId);
+  const result = await transition(restaurantId, entryId, "ready", "collected");
+
+  if (entry.orderId) {
+    const order = await Order.findOneAndUpdate(
+      { _id: entry.orderId, restaurantId },
+      { status: "collected" },
+      { new: true },
+    ).lean();
+
+    if (order) {
+      emitOrderUpdated(restaurantId, {
+        orderId: order._id,
+        orderCode: order.orderCode,
+        status: order.status,
+        orderType: order.orderType,
+      });
+    }
+  }
+
+  return result;
 }
 
 async function removeFromQueue(restaurantId, entryId, reason = "no-show") {

@@ -81,6 +81,11 @@ const queueEntrySchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    /** Set when staff releases the ready order for customer pickup. */
+    pickupNotifiedAt: {
+      type: Date,
+      default: null,
+    },
     collectedAt: {
       type: Date,
       default: null,

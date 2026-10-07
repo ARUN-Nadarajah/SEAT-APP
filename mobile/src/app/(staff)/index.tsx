@@ -30,7 +30,6 @@ import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
   approveCancellation,
-  callNextOrder,
   checkInBooking,
   completeBooking,
   createTable,
@@ -77,7 +76,7 @@ const TABLE_STATUS_OPTIONS = ['available', 'reserved', 'occupied'] as const;
  * Staff Dashboard (spec §5 / FR08 / FR09).
  *
  * Three panels behind one segmented control: table grid, today's
- * reservations with search + check-in, and the live queue with call-next.
+ * reservations with search + check-in, and the live queue with kitchen actions.
  */
 export default function StaffDashboardScreen() {
   const { user } = useAuth();
@@ -355,16 +354,6 @@ export default function StaffDashboardScreen() {
     }
   }
 
-  async function onCallNext() {
-    try {
-      await callNextOrder(restaurantId);
-      queue.refetch();
-      showToast('Next order is now preparing.', 'success');
-    } catch (error) {
-      showToast(apiErrorMessage(error), 'error');
-    }
-  }
-
   async function onRemove(entryId: string) {
     try {
       await removeFromQueue(entryId, restaurantId, 'no-show');
@@ -424,7 +413,7 @@ export default function StaffDashboardScreen() {
   async function onMarkCollected(entryId: string) {
     try {
       await markQueueCollected(entryId, restaurantId);
-      queue.refetch();
+      await Promise.all([queue.refetch(), kitchen.refetch()]);
       markLive();
       showToast('Parcel marked as collected.', 'info');
     } catch (error) {
@@ -435,11 +424,11 @@ export default function StaffDashboardScreen() {
   async function onUpdateOrderStatus(orderId: string, status: OrderStatus) {
     try {
       await updateOrderStatus(orderId, status);
-      kitchen.refetch();
+      await Promise.all([kitchen.refetch(), queue.refetch()]);
       markLive();
       const msg =
         status === 'ready'
-          ? 'Order ready! Customer notified.'
+          ? 'Order ready. Ready for pickup is now unlocked.'
           : `Order status updated to ${status}.`;
       showToast(msg, 'success');
     } catch (error) {
@@ -448,7 +437,6 @@ export default function StaffDashboardScreen() {
   }
 
   const summary = tables.data?.summary;
-  const waitingCount = queue.data?.data?.filter((row) => row.status === 'waiting').length ?? 0;
   const inQueueCount = queue.data?.data?.filter((row) =>
     ['waiting', 'preparing', 'ready'].includes(row.status),
   ).length ?? 0;
@@ -887,18 +875,11 @@ export default function StaffDashboardScreen() {
           ) : (queue.data?.data?.length ?? 0) === 0 ? (
             <EmptyState
               title="No takeaway orders in line. Yet."
-              message="Call next order as soon as a parcel joins the queue."
+              message="Orders appear here as customers join the queue."
               glyph="⏳"
             />
           ) : (
             <>
-              <Button
-                label={`Call next order${waitingCount ? ` (${waitingCount})` : ''}`}
-                onPress={onCallNext}
-                disabled={waitingCount === 0}
-                testID="call-next"
-              />
-
               <View style={styles.list}>
                 {(queue.data?.data ?? []).map((row) => (
                   <Card key={row.id} style={styles.queueCard}>
@@ -944,7 +925,23 @@ export default function StaffDashboardScreen() {
                           />
                         </>
                       ) : null}
-                      {row.status === 'preparing' || row.status === 'notified' ? (
+                      {row.status === 'preparing' ? (
+                        <>
+                          <Button
+                            label="Ready for pickup"
+                            onPress={() => onMarkReady(row.id)}
+                            disabled
+                            style={styles.queueAction}
+                          />
+                          <Button
+                            label="Remove"
+                            variant="danger"
+                            onPress={() => onRemove(row.id)}
+                            style={styles.queueAction}
+                          />
+                        </>
+                      ) : null}
+                      {row.status === 'ready' && !row.pickupNotifiedAt ? (
                         <>
                           <Button
                             label="Ready for pickup"
@@ -959,7 +956,7 @@ export default function StaffDashboardScreen() {
                           />
                         </>
                       ) : null}
-                      {row.status === 'ready' ? (
+                      {row.status === 'ready' && row.pickupNotifiedAt ? (
                         <>
                           <Button
                             label="Collected"

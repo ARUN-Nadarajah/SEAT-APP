@@ -186,7 +186,7 @@ sample notifications.
 | FR06 table-ready notification | `queue/ready.tsx` — "Come in. Your table is ready" |
 | FR07 modify / cancel with confirmation | `bookings/[id]/change.tsx` + confirm dialog in `bookings/[id]/index.tsx` |
 | FR08 staff table status toggle | `(staff)/index.tsx` — tap a cell to cycle Available → Occupied → Reserved |
-| FR09 staff queue + reservations | `(staff)/index.tsx` — call next, seat, remove no-show, search, check-in |
+| FR09 staff queue + reservations | `(staff)/index.tsx` — kitchen preparation, pickup release, remove no-show, search, check-in |
 | FR10 manager summary + chart | `(manager)/index.tsx` — cards, date filter, reservations-by-hour bars |
 
 Non-functional: skeletons on every data screen, empty and error states with
@@ -218,7 +218,7 @@ Reservations    GET    /reservations             POST /reservations
 
 Queue           GET    /queue/preview            POST /queue/join
                 GET    /queue/mine               DELETE /queue/:id
-                GET    /queue/staff/list         POST /queue/staff/call-next
+                GET    /queue/staff/list         POST /queue/staff/:id/start-preparing
                 POST   /queue/staff/:id/notify   POST /queue/staff/:id/seat
                 POST   /queue/staff/:id/remove
 
@@ -289,7 +289,7 @@ cd backend && npm run smoke && npm run start   # in another terminal
 
 Coverage in short: token pair + refresh rotation, role guards, booking
 creation, slot-conflict 409 with alternatives, cancel-and-release, queue
-positions, call-next → notification, seating, no-show removal.
+positions, kitchen preparation and pickup notification, seating, no-show removal.
 
 ## Design system
 

@@ -66,12 +66,12 @@ export default function QueueScreen() {
   );
 
   const stageIndex = STAGES.findIndex((stage) => stage.key === entry.stage);
-  const isReady = entry.status === 'ready';
-  const statusMessage = entry.status === 'waiting'
+  const isReady = entry.stage === 'ready';
+  const statusMessage = entry.stage === 'joined'
     ? "You're in the queue. Stay nearby, we'll update you as soon as we start preparing your order."
-    : entry.status === 'preparing'
+    : entry.stage === 'preparing'
       ? "We're preparing your order. It won't be long."
-      : entry.status === 'ready'
+      : entry.stage === 'ready'
         ? 'Your order is ready! Please collect it at the counter and show your queue code.'
         : 'Thanks! Enjoy your meal.';
 

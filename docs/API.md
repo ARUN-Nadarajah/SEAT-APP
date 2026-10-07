@@ -120,9 +120,8 @@ Statuses: `confirmed`, `checked-in`, `cancelled`, `completed`, `no-show`.
 | GET | `/queue/mine` | user | Active entry (`data: null` when empty) |
 | DELETE | `/queue/:id` | user | Leave the queue |
 | GET | `/queue/staff/list?restaurantId=` | staff/manager | Live line, ordered |
-| POST | `/queue/staff/call-next` | staff/manager | Start preparing the first waiting order |
 | POST | `/queue/staff/:id/start-preparing` | staff/manager | Move waiting order to preparing |
-| POST | `/queue/staff/:id/ready` | staff/manager | Mark ready and notify the customer |
+| POST | `/queue/staff/:id/ready` | staff/manager | Notify the customer after the kitchen marks the order ready |
 | POST | `/queue/staff/:id/collected` | staff/manager | Mark parcel collected |
 | POST | `/queue/staff/:id/remove` | staff/manager | `reason: no-show \| cancelled` |
 
@@ -216,7 +215,7 @@ Rooms are venue-scoped: `restaurant:<id>`.
 | FR03 join queue | `POST /queue/join` |
 | FR04 wait + parties ahead | `GET /queue/preview`, `GET /queue/mine` |
 | FR05 live position | `queue:updated` + `lastUpdated` |
-| FR06 table ready | `POST /queue/staff/call-next`, `queue:ready`, notifications |
+| FR06 pickup notification | Kitchen order status + `POST /queue/staff/:id/ready`, `queue:ready`, notifications |
 | FR07 change/cancel | `PUT`/`DELETE /reservations/:id` + `slot_unavailable` alternatives |
 | FR08 table status | `PATCH /tables/:id/status` |
 | FR09 staff queue & bookings | `/queue/staff/*`, `/reservations/staff`, `check-in`, `no-show` |

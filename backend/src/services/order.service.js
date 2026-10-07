@@ -171,6 +171,15 @@ async function createOrder(userId, data) {
     });
     order.queueEntryId = queueEntry._id;
     await order.save();
+    await notify({
+      userId,
+      type: "queue",
+      title: "You're in the takeaway queue",
+      body: `${restaurant.name}: your parcel is in the queue.`,
+      route: "/queue",
+      data: { queueCode: queueEntry.queueCode },
+      channel: "email",
+    });
     emitQueueUpdated(restaurant._id, {
       queueEntryId: queueEntry._id,
       orderId: order._id,
@@ -347,7 +356,7 @@ async function updateOrderStatus(orderId, newStatus, staffUser) {
     }
   }
 
-  if (newStatus === "ready") {
+  if (newStatus === "ready" && order.orderType !== "takeaway") {
     const isTakeaway = order.orderType === "takeaway";
     const parcelRef = order.orderCode || "your order";
     const body = isTakeaway
