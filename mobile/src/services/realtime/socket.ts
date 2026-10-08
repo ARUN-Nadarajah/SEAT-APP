@@ -64,6 +64,14 @@ export function onQueueUpdated(
   return subscribeToRestaurant(restaurantId, { 'queue:updated': handler });
 }
 
+/** Notify staff when a customer leaves the queue. */
+export function onQueueLeft(
+  restaurantId: string,
+  handler: (payload: unknown) => void,
+): Unsubscribe {
+  return subscribeToRestaurant(restaurantId, { 'queue:left': handler });
+}
+
 /** FR06 — "your table is ready". */
 export function onQueueReady(
   restaurantId: string,

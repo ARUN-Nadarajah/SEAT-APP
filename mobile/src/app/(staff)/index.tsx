@@ -34,6 +34,7 @@ import {
   completeBooking,
   createTable,
   fetchKitchenOrders,
+  fetchNotifications,
   fetchRestaurants,
   fetchStaffQueue,
   fetchStaffReservations,
@@ -52,6 +53,7 @@ import {
 import {
   onTableUpdated,
   onQueueUpdated,
+  onQueueLeft,
   onOrderUpdated,
   onOrderReady,
 } from '@/services/realtime/socket';
@@ -141,6 +143,10 @@ export default function StaffDashboardScreen() {
     () => fetchKitchenOrders(restaurantId),
     { enabled: Boolean(restaurantId) },
   );
+  const notifications = useApiQuery(['staff-notifications', 'unread'], () =>
+    fetchNotifications(true),
+    { refetchInterval: 5000 },
+  );
 
   const markLive = useCallback(() => setLiveAt(new Date().toISOString()), []);
 
@@ -155,6 +161,12 @@ export default function StaffDashboardScreen() {
       queue.refetch();
       markLive();
     });
+    const offQueueLeft = onQueueLeft(restaurantId, () => {
+      queue.refetch();
+      kitchen.refetch();
+      notifications.refetch();
+      markLive();
+    });
     const offOrders = onOrderUpdated(restaurantId, () => {
       kitchen.refetch();
       markLive();
@@ -166,14 +178,21 @@ export default function StaffDashboardScreen() {
     return () => {
       offTables();
       offQueue();
+      offQueueLeft();
       offOrders();
       offOrderReady();
     };
-  }, [restaurantId, tables.refetch, queue.refetch, kitchen.refetch, markLive]);
+  }, [restaurantId, tables.refetch, queue.refetch, kitchen.refetch, notifications.refetch, markLive]);
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([tables.refetch(), reservations.refetch(), queue.refetch(), kitchen.refetch()]);
+    await Promise.all([
+      tables.refetch(),
+      reservations.refetch(),
+      queue.refetch(),
+      kitchen.refetch(),
+      notifications.refetch(),
+    ]);
     setRefreshing(false);
   }
 
@@ -504,6 +523,15 @@ export default function StaffDashboardScreen() {
             accessibilityLabel="Notifications"
           >
             <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+            {(notifications.data?.unreadCount ?? 0) > 0 ? (
+              <View style={styles.bellBadge}>
+                <AppText style={styles.bellBadgeText}>
+                  {(notifications.data?.unreadCount ?? 0) > 9
+                    ? '9+'
+                    : notifications.data?.unreadCount}
+                </AppText>
+              </View>
+            ) : null}
           </Pressable>
         </View>
       </View>
@@ -1328,6 +1356,23 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  bellBadgeText: {
+    color: colors.textOnPrimary,
+    fontSize: 10,
+    fontWeight: '700',
   },
   logoutButton: {
     width: 44,

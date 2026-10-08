@@ -32,6 +32,12 @@ const markAllNotificationsRead = asyncHandler(async (req, res) => {
   success(res, result);
 });
 
+/** POST /api/notifications/clear */
+const clearNotifications = asyncHandler(async (req, res) => {
+  const result = await notificationService.clearAll(req.user._id);
+  success(res, result);
+});
+
 /** POST /api/notifications/push-token — register an Expo push token. */
 const registerPushToken = asyncHandler(async (req, res) => {
   const token = String(req.body?.pushToken || "").trim();
@@ -50,5 +56,6 @@ module.exports = {
   getNotifications,
   markNotificationRead,
   markAllNotificationsRead,
+  clearNotifications,
   registerPushToken,
 };

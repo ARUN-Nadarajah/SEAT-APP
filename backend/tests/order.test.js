@@ -29,6 +29,21 @@ describe("Orders", () => {
     expect(String(order.queueEntryId)).toBe(String(entry._id));
   });
 
+  test("rejects a second takeaway order while the account has an active queue", async () => {
+    await takeaway();
+
+    const response = await api(fixture.tokens.customer)
+      .post("/api/orders")
+      .send({
+        restaurantId: fixture.restaurantId,
+        orderType: "takeaway",
+        items: [{ menuItemId: await menuItemId(), quantity: 1 }],
+      })
+      .expect(409);
+
+    expect(response.body.code).toBe("already_in_queue");
+  });
+
   test("requires a checked-in reservation for dine-in orders", async () => {
     const response = await api(fixture.tokens.customer)
       .post("/api/orders")

@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { font-family: system-ui, sans-serif; background:#F6F4EC; margin:0; padding:16px; }
+  h2 { font-size:16px; margin:18px 0 8px; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .card { background:#fff; border:1px solid #E3E0D5; border-radius:16px; padding:8px; box-shadow:0 4px 12px rgba(20,33,27,.06); }
+  .card img { width:100%; height:130px; object-fit:cover; border-radius:12px; background:#F1EEE2; display:block; }
+  .name { font-size:11px; font-weight:600; margin-top:6px; word-break:break-all; }
+</style>
+</head>
+<body>
+<h2>Unsplash kottu candidates</h2>
+<div class="grid" id="kottu"></div>
+<h2>Desserts</h2>
+<div class="grid" id="dessert"></div>
+<script>
+const kottu = [
+ 'photo-1630409349197-b733a524b24e','photo-1565275573387-ff697bfa3626','photo-1742281095650-dd3c50c08772',
+ 'photo-1728293704439-9b4ecc6b961b','photo-1631164127494-272cf06180bd','photo-1681840329074-2b5020f39d05',
+ 'photo-1708867818554-b818ebcff2ae','photo-1746961898943-1a2165fc2492','photo-1649349103703-f9b2e71fbd0e',
+ 'photo-1593252719532-53f183016149','photo-1645432524603-2a5172479006','photo-1596175008099-6a46d69c2456'
+].map(id => ['unsplash ' + id, 'https://images.unsplash.com/' + id + '?w=600&auto=format&fit=crop&q=80']);
+const dessert = [
+  ['Watalappan-Sri Lanka (commons)','https://upload.wikimedia.org/wikipedia/commons/thumb/8/81/Watalappan-Sri_Lanka.jpg/960px-Watalappan-Sri_Lanka.jpg'],
+  ['Watalappan 23091763250 (commons)','https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/Watalappan_%2823091763250%29.jpg/960px-Watalappan_%2823091763250%29.jpg'],
+  ['Curd and treacle (commons)','https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Curd_and_treacle.jpg/960px-Curd_and_treacle.jpg'],
+  ['Curd & treacle-Sri Lanka (commons)','https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Curd_%26_treacle-Sri_Lanka.jpg/960px-Curd_%26_treacle-Sri_Lanka.jpg'],
+  ['Curd und treacle (commons)','https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/Curd_und_treacle-Sri_Lanka.jpg/960px-Curd_und_treacle-Sri_Lanka.jpg'],
+  ['existing Chicken Kottu (unsplash)','https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=600&auto=format&fit=crop&q=80'],
+  ['existing Cheese Burger','https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&auto=format&fit=crop&q=80'],
+  ['existing Lime Juice','https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80']
+];
+function render(id, rows) {
+  document.getElementById(id).innerHTML = rows.map(([name,url]) =>
+    `<div class="card"><img src="${url}" alt=""><div class="name">${name}</div></div>`).join('');
+}
+render('kottu', kottu); render('dessert', dessert);
+</script>
+</body>
+</html>

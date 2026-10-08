@@ -1,6 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppText, Button, Card, useFeedback } from '@/components/ui';
@@ -52,7 +53,19 @@ export default function ReviewOrderScreen() {
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <ScrollView contentContainerStyle={styles.content}>
-        <AppText variant="title">Review order</AppText>
+        <View style={styles.header}>
+          <Pressable
+            onPress={() => router.back()}
+            style={styles.back}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Back to menu"
+          >
+            <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+          </Pressable>
+          <AppText variant="title">Review order</AppText>
+          <View style={styles.back} />
+        </View>
         {items.map((item) => (
           <Card key={item.menuItemId ?? item.id ?? item.name}>
             <View style={styles.row}><AppText variant="label">{item.quantity} × {item.name}</AppText><AppText variant="label">LKR {(item.price * item.quantity).toLocaleString()}</AppText></View>
@@ -70,6 +83,17 @@ export default function ReviewOrderScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, gap: spacing.md },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  back: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', gap: spacing.md },
   notes: { minHeight: 96, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, padding: spacing.md, color: colors.textPrimary, textAlignVertical: 'top' },
 });

@@ -4,9 +4,10 @@ const Restaurant = require("../models/Restaurant");
 const User = require("../models/User");
 
 const { AppError } = require("../utils/errors");
-const { notify } = require("./notification.service");
+const { notify, notifyRestaurantStaff } = require("./notification.service");
 const {
   emitQueueUpdated,
+  emitQueueLeft,
   emitQueueReady,
   emitOrderUpdated,
 } = require("../realtime/events");
@@ -148,13 +149,13 @@ async function joinQueue(userId, payload) {
 
   const existing = await QueueEntry.findOne({
     userId,
-    restaurantId: restaurant._id,
     status: { $in: ACTIVE_STATUSES },
-  });
+  }).sort({ joinedAt: -1 });
   if (existing) {
-    throw new AppError("You are already in this queue.", 409, "already_in_queue", {
+    throw new AppError("You can only join one takeaway queue at a time.", 409, "already_in_queue", {
       queueCode: existing.queueCode,
       entryId: existing._id,
+      restaurantId: existing.restaurantId,
     });
   }
 
@@ -213,7 +214,54 @@ async function leaveQueue(userId, entryId) {
   entry.leftAt = new Date();
   await entry.save();
   const snapshot = await recomputePositions(entry.restaurantId);
-  emitQueueUpdated(entry.restaurantId, { queueLength: snapshot.length });
+  const customer = await User.findById(entry.userId).select("name").lean();
+  const guestName = entry.guestName || customer?.name || "A customer";
+  let cancelledOrder = null;
+  if (entry.orderId) {
+    cancelledOrder = await Order.findOneAndUpdate(
+      {
+        _id: entry.orderId,
+        userId,
+        restaurantId: entry.restaurantId,
+        queueEntryId: entry._id,
+        status: "placed",
+      },
+      { status: "cancelled" },
+      { new: true },
+    ).lean();
+  }
+  await notifyRestaurantStaff(entry.restaurantId, {
+    type: "queue-update",
+    title: "Customer left the queue",
+    body: `${guestName} left queue ${entry.queueCode}.`,
+    route: "/staff",
+    data: {
+      entryId: String(entry._id),
+      orderId: entry.orderId ? String(entry.orderId) : null,
+      queueCode: entry.queueCode,
+    },
+    channel: "push",
+  });
+  // Persist the staff notification before refreshing the dashboard via realtime events.
+  emitQueueUpdated(entry.restaurantId, {
+    queueLength: snapshot.length,
+    entryId: entry._id,
+    status: entry.status,
+  });
+  emitQueueLeft(entry.restaurantId, {
+    entryId: entry._id,
+    orderId: cancelledOrder?._id || entry.orderId || null,
+    queueCode: entry.queueCode,
+    guestName,
+  });
+  if (cancelledOrder) {
+    emitOrderUpdated(entry.restaurantId, {
+      orderId: cancelledOrder._id,
+      orderCode: cancelledOrder.orderCode,
+      status: cancelledOrder.status,
+      orderType: cancelledOrder.orderType,
+    });
+  }
   return { message: "You have left the queue.", data: { id: entry._id, queueCode: entry.queueCode, status: entry.status } };
 }
 

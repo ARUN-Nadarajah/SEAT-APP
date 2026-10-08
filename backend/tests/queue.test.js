@@ -3,6 +3,9 @@ const bcrypt = require('bcryptjs');
 const { api, fixture } = require('./setup');
 const User = require('../src/models/User');
 const Notification = require('../src/models/Notification');
+const Restaurant = require('../src/models/Restaurant');
+const Order = require('../src/models/Order');
+const QueueEntry = require('../src/models/QueueEntry');
 
 /** A second guest so queue positions can be asserted beyond 1. */
 let guestCounter = 0;
@@ -38,6 +41,11 @@ async function join(token) {
 }
 
 describe('Virtual queue (FR03–FR06)', () => {
+  async function menuItemId() {
+    const restaurant = await Restaurant.findById(fixture.restaurantId).lean();
+    return restaurant.menuItems[0]._id;
+  }
+
   test('preview returns a wait estimate and orders ahead (FR04)', async () => {
     const response = await api(fixture.tokens.customer)
       .get('/api/queue/preview')
@@ -80,6 +88,18 @@ describe('Virtual queue (FR03–FR06)', () => {
     expect(response.body.code).toBe('already_in_queue');
   });
 
+  test('does not allow one account to join a second active queue', async () => {
+    await join(fixture.tokens.customer);
+
+    const response = await api(fixture.tokens.customer)
+      .post('/api/queue/join')
+      .send({ restaurantId: fixture.restaurantId })
+      .expect(409);
+
+    expect(response.body.code).toBe('already_in_queue');
+    expect(response.body.message).toMatch(/one takeaway queue/i);
+  });
+
   test('GET /queue/mine returns the active entry, then null after leaving', async () => {
     const entry = await join(fixture.tokens.customer);
 
@@ -91,6 +111,44 @@ describe('Virtual queue (FR03–FR06)', () => {
 
     const empty = await api(fixture.tokens.customer).get('/api/queue/mine').expect(200);
     expect(empty.body.data).toBeNull();
+  });
+
+  test('leaving a takeaway queue cancels its kitchen order', async () => {
+    const orderResponse = await api(fixture.tokens.customer)
+      .post('/api/orders')
+      .send({
+        restaurantId: fixture.restaurantId,
+        orderType: 'takeaway',
+        items: [{ menuItemId: await menuItemId(), quantity: 1 }],
+      })
+        .expect(201);
+      const order = orderResponse.body.data.order;
+      const queueEntry = await QueueEntry.findOne({ orderId: order.id });
+
+      await api(fixture.tokens.customer).delete(`/api/queue/${queueEntry.id || queueEntry._id}`).expect(200);
+
+    expect((await Order.findById(order.id)).status).toBe('cancelled');
+      expect(
+        await Notification.findOne({
+          userId: fixture.userIds.staff,
+          title: 'Customer left the queue',
+        }),
+      ).not.toBeNull();
+      const staffNotifications = await api(fixture.tokens.staff)
+        .get('/api/notifications')
+        .query({ unreadOnly: '1' })
+        .expect(200);
+      expect(
+        staffNotifications.body.data.some(
+          (notification) => notification.title === 'Customer left the queue',
+        ),
+      ).toBe(true);
+
+      const kitchen = await api(fixture.tokens.staff)
+        .get('/api/orders/kitchen')
+        .query({ restaurantId: fixture.restaurantId })
+        .expect(200);
+      expect(kitchen.body.data.some((item) => item.id === order.id)).toBe(false);
   });
 
   test('staff list shows the line in order (FR09)', async () => {

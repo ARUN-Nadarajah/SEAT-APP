@@ -16,6 +16,7 @@ import {
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
+  clearNotifications,
   fetchNotifications,
   fetchEligibleOffers,
   markAllNotificationsRead,
@@ -85,6 +86,17 @@ export default function NotificationsScreen() {
     }
   }
 
+  async function onClear() {
+    try {
+      await clearNotifications();
+      setExpandedOfferId(null);
+      await query.refetch();
+      showToast('Notifications cleared.', 'success');
+    } catch (error) {
+      showToast(apiErrorMessage(error), 'error');
+    }
+  }
+
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
       <View style={styles.header}>
@@ -103,7 +115,14 @@ export default function NotificationsScreen() {
             {unread > 0 ? `${unread} unread` : 'You’re all caught up'}
           </AppText>
         </View>
-        <View style={styles.back} />
+        <Pressable
+          onPress={onClear}
+          accessibilityRole="button"
+          accessibilityLabel="Clear notifications"
+          style={styles.clearButton}
+        >
+          <AppText variant="label" style={styles.clearButtonText}>Clear</AppText>
+        </Pressable>
       </View>
 
       <View style={styles.filters}>
@@ -337,6 +356,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  clearButton: {
+    minWidth: 56,
+    height: 40,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearButtonText: {
+    color: colors.textOnPrimary,
   },
   filters: {
     flexDirection: 'row',

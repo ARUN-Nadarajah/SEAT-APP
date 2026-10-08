@@ -109,6 +109,8 @@ export type MenuItem = {
   category: string;
   isVegetarian: boolean;
   isPopular?: boolean;
+  /** Optional dish photo (not every backend source ships one). */
+  image?: string;
 };
 
 export type Menu = {

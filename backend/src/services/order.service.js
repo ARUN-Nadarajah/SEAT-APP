@@ -124,6 +124,25 @@ async function createOrder(userId, data) {
   const orderType = data.orderType === "takeaway" ? "takeaway" : "dine-in";
   const orderCode = data.orderCode || data.orderNumber || generateOrderNumber(orderType);
 
+  if (orderType === "takeaway") {
+    const existingQueue = await QueueEntry.findOne({
+      userId,
+      status: { $in: ["waiting", "preparing", "ready", "notified"] },
+    }).sort({ joinedAt: -1 });
+    if (existingQueue) {
+      throw new AppError(
+        "You can only join one takeaway queue at a time. Leave your current queue before placing another takeaway order.",
+        409,
+        "already_in_queue",
+        {
+          queueCode: existingQueue.queueCode,
+          entryId: existingQueue._id,
+          restaurantId: existingQueue.restaurantId,
+        },
+      );
+    }
+  }
+
   let reservation = null;
   if (orderType === "dine-in") {
     if (!data.reservationId) {

@@ -92,6 +92,11 @@ export async function markAllNotificationsRead() {
   return data;
 }
 
+export async function clearNotifications() {
+  const { data } = await apiClient.post('/notifications/clear');
+  return data;
+}
+
 export async function registerPushToken(pushToken: string) {
   const { data } = await apiClient.post('/notifications/push-token', {
     pushToken,

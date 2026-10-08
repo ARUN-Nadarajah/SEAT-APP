@@ -213,6 +213,12 @@ async function markAllRead(userId) {
   return { data: { unreadCount } };
 }
 
+/** POST /api/notifications/clear — remove the user's notification history. */
+async function clearAll(userId) {
+  const result = await Notification.deleteMany({ userId });
+  return { data: { deletedCount: result.deletedCount } };
+}
+
 /** POST /api/notifications/push-token — register Expo push token. */
 async function registerPushToken(userId, pushToken) {
   await User.findByIdAndUpdate(userId, { pushToken: String(pushToken || "") });
@@ -225,6 +231,7 @@ module.exports = {
   listNotifications,
   markRead,
   markAllRead,
+  clearAll,
   registerPushToken,
   sendExpoPush,
 };
