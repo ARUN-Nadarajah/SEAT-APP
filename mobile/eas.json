@@ -11,11 +11,19 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://seat-app-lmot.onrender.com/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://seat-app-lmot.onrender.com"
       }
     },
     "production": {
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://seat-app-lmot.onrender.com/api",
+        "EXPO_PUBLIC_SOCKET_URL": "https://seat-app-lmot.onrender.com"
       }
     }
   },

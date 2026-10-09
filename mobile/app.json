@@ -44,7 +44,8 @@
       "router": {},
       "eas": {
         "projectId": "ec4e4236-3d5b-4ad1-95ae-e12b29146309"
-      }
+      },
+      "apiUrl": "https://seat-app-lmot.onrender.com/api"
     }
   }
 }
