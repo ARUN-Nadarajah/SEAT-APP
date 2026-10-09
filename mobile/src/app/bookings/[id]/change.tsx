@@ -217,9 +217,36 @@ export default function ChangeReservationScreen() {
     );
   }
 
+  const isPast = Boolean(
+    booking.isPast ||
+    ['cancelled', 'completed', 'no-show'].includes(booking.status || '') ||
+    (booking.date && new Date(booking.date).getTime() < Date.now() - 24 * 60 * 60 * 1000)
+  );
+
+  if (isPast) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top']}>
+        <Header onBack={handleBack} />
+        <View style={styles.content}>
+          <InfoBox tone="warning">
+            <AppText variant="label">Cannot edit past reservation</AppText>
+            <AppText variant="secondary">
+              This reservation has already passed or been completed and cannot be modified.
+            </AppText>
+          </InfoBox>
+          <Button
+            label="Back to bookings"
+            variant="secondary"
+            onPress={() => router.replace('/(tabs)/bookings')}
+          />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   async function onSave() {
     const current = booking;
-    if (!current) return;
+    if (!current || isPast) return;
 
     setSaving(true);
     setError(null);

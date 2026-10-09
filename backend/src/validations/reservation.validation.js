@@ -71,6 +71,23 @@ function validateCreateReservation(payload = {}) {
   if (payload.endTime !== undefined) {
     result.endTime = assertTime(payload.endTime);
   }
+  const rawItems = payload.items || payload.preOrderItems;
+  if (Array.isArray(rawItems) && rawItems.length > 0) {
+    result.items = rawItems.map((item, idx) => ({
+      menuItemId: assertObjectId(item.menuItemId || item.id || item._id, `items[${idx}].menuItemId`),
+      name: item.name ? String(item.name).trim() : undefined,
+      price: item.price !== undefined ? Number(item.price) : undefined,
+      quantity: assertIntRange(item.quantity || 1, {
+        min: 1,
+        max: 99,
+        fieldName: `items[${idx}].quantity`,
+      }),
+      note: assertOptionalText(item.note, 200, `items[${idx}].note`),
+    }));
+  }
+  if (payload.preOrderNotes !== undefined) {
+    result.preOrderNotes = assertOptionalText(payload.preOrderNotes, 300, "Pre-order notes");
+  }
   return result;
 }
 
