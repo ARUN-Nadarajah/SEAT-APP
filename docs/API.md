@@ -166,11 +166,21 @@ Emits `table:updated` to the venue room.
 | GET | `/manager/stats?restaurantId=&date=` | manager |
 | GET | `/manager/daily?restaurantId=&days=7` | manager |
 
+Two independent tracks: reservation figures are scoped by `date`, while the
+`queue` block is always live (today + the current line). Queue wait is
+`joinedAt → collectedAt` — the takeaway queue never seats anyone.
+
 ```jsonc
 { "data": { "totalReservations": 12, "noShows": 1, "cancelled": 2,
-            "avgWaitMinutes": 24, "avgWaitLabel": "24 min",
-            "avgPartySize": 3.6, "changeVsYesterday": "+3" },
-  "hourly": [ { "hour":19, "label":"7 PM", "reservations":4, "seated":2, "avgWait":21 } ] }
+            "checkedIn": 5, "confirmed": 3, "completed": 4,
+            "avgPartySize": 3.6, "changeVsYesterday": "+3",
+            "queue": { "joinedToday": 8, "active": 3, "waiting": 2,
+                       "preparing": 1, "ready": 0, "collectedToday": 5,
+                       "noShowsToday": 0, "cancelledToday": 1,
+                       "avgPickupWaitMinutes": 18, "avgPickupWaitLabel": "18 min",
+                       "currentWaitLabel": "30 min" },
+            "avgWaitMinutes": 18, "avgWaitLabel": "18 min" },  // legacy alias of queue.avgPickupWait*
+  "hourly": [ { "hour":19, "label":"7 PM", "reservations":4, "queueCompleted":2, "avgWait":21 } ] }
 ```
 
 ---

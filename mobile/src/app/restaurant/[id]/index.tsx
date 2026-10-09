@@ -154,7 +154,12 @@ export default function RestaurantDetailsScreen() {
 
           <Pressable
             style={styles.linkCard}
-            onPress={() => router.push('/restaurant/location')}
+            onPress={() =>
+              router.push({
+                pathname: '/restaurant/[id]/location',
+                params: { id: restaurant.id },
+              })
+            }
             accessibilityRole="button"
             accessibilityLabel="Plan your arrival"
           >

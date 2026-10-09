@@ -285,26 +285,46 @@ export type AppNotification = {
   createdAt: string;
 };
 
+/** Live takeaway-queue figures (never scoped by the date filter). */
+export type ManagerQueueStats = {
+  joinedToday: number;
+  /** Entries currently in the line (waiting + preparing + ready). */
+  active: number;
+  waiting: number;
+  preparing: number;
+  ready: number;
+  collectedToday: number;
+  noShowsToday: number;
+  cancelledToday: number;
+  avgPickupWaitMinutes: number;
+  avgPickupWaitLabel: string;
+  /** Estimated wait for the whole active line. */
+  currentWaitLabel: string;
+};
+
 export type ManagerStats = {
   totalReservations: number;
   noShows: number;
   cancelled: number;
   checkedIn: number;
   confirmed: number;
-  avgWaitMinutes: number;
-  avgWaitLabel: string;
+  completed: number;
   avgPartySize: number;
-  walkIns: number;
   tableSummary: TableSummary;
   changeVsYesterday: string;
   date: string;
+  /** Legacy alias of queue.avgPickupWaitLabel (FR10 docs compatibility). */
+  avgWaitMinutes: number;
+  avgWaitLabel: string;
+  queue: ManagerQueueStats;
 } & LastUpdated;
 
 export type HourlyBucket = {
   hour: number;
   label: string;
   reservations: number;
-  seated: number;
+  /** Takeaway orders collected during this hour. */
+  queueCompleted: number;
   avgWait: number;
 };
 

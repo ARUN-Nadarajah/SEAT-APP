@@ -12,8 +12,8 @@ import { colors, radius, spacing } from '@/theme';
 /**
  * Plan your arrival (spec §5): map, address and directions hint.
  *
- * `react-native-maps` is native-only — on web we fall back to a styled
- * placeholder so the route still renders.
+ * `react-native-maps` is native-only — on web we embed a live
+ * OpenStreetMap view (no API key required) so the map is visible everywhere.
  */
 let MapView: any = null;
 let Marker: any = null;
@@ -26,6 +26,15 @@ if (Platform.OS !== 'web') {
   } catch {
     MapView = null;
   }
+}
+
+/** Web-only live map embed (OpenStreetMap, keyless). */
+const IFrame = 'iframe' as unknown as React.ComponentType<any>;
+
+function osmEmbedUrl(lat: number, lng: number) {
+  const delta = 0.006;
+  const bbox = [lng - delta, lat - delta, lng + delta, lat + delta].join('%2C');
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat}%2C${lng}`;
 }
 
 export default function LocationScreen() {
@@ -84,7 +93,14 @@ export default function LocationScreen() {
         </View>
 
         <View style={styles.mapShell}>
-          {MapView ? (
+          {Platform.OS === 'web' ? (
+            <IFrame
+              src={osmEmbedUrl(lat, lng)}
+              title={`Map showing ${restaurant.name}`}
+              style={styles.map as any}
+              accessibilityLabel={`Map showing ${restaurant.name}`}
+            />
+          ) : MapView ? (
             <MapView
               style={styles.map}
               initialRegion={{

@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   AppText,
+  Badge,
   Card,
   EmptyState,
   ErrorState,
@@ -19,6 +20,7 @@ import { useLogout } from '@/hooks/useLogout';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   apiErrorMessage,
+  fetchDailyBreakdown,
   fetchManagerStats,
   fetchRestaurants,
 } from '@/services/api';
@@ -32,8 +34,15 @@ function todayString(daysAgo: number): string {
 }
 
 /**
- * Manager View (FR10): summary cards — total reservations, no-shows, average
- * wait — plus a date filter and a simple reservations-by-hour chart.
+ * Manager View (FR10).
+ *
+ * The venue runs two independent tracks, so the screen is split to match:
+ *   • Table reservations — booked parties, scoped by the date filter.
+ *   • Virtual queue tracker — the live takeaway line (guests collect at the
+ *     counter, no table involved), always current regardless of the filter.
+ *
+ * Summary cards, an operational detail grid, and a simple bar chart sit
+ * under each track.
  */
 export default function ManagerDashboardScreen() {
   const { user } = useAuth();
@@ -43,6 +52,7 @@ export default function ManagerDashboardScreen() {
 
   // Date is state, not computed during render (React compiler: purity).
   const [dateParam, setDateParam] = useState(() => todayString(0));
+  const [weekFrom] = useState(() => todayString(6));
 
   function selectRange(next: Range) {
     setRange(next);
@@ -55,22 +65,41 @@ export default function ManagerDashboardScreen() {
   });
 
   const restaurantId = venueQuery.data?.id ?? user?.restaurantId ?? '';
-
+  // Poll every 30s so "Updated …" always reflects current figures (NFR03).
   const stats = useApiQuery(
     ['manager-stats', restaurantId, dateParam],
     () => fetchManagerStats(restaurantId, dateParam),
-    { enabled: Boolean(restaurantId) },
+    { enabled: Boolean(restaurantId), refetchInterval: 30_000 },
+  );
+
+  const daily = useApiQuery(
+    ['manager-daily', restaurantId, weekFrom],
+    () => fetchDailyBreakdown(restaurantId, { from: weekFrom, days: 7 }),
+    {
+      enabled: Boolean(restaurantId) && range === 'week',
+      refetchInterval: 30_000,
+    },
   );
 
   async function onRefresh() {
     setRefreshing(true);
-    await stats.refetch();
-    setRefreshing(false);
+    try {
+      await Promise.all([stats.refetch(), range === 'week' ? daily.refetch() : Promise.resolve()]);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   const data = stats.data?.data;
+  const queue = data?.queue;
   const hourly = stats.data?.hourly ?? [];
-  const peak = Math.max(1, ...hourly.map((bucket) => bucket.reservations));
+  const dailyData = daily.data?.data ?? [];
+  const peak = Math.max(
+    1,
+    ...(range === 'week'
+      ? dailyData.flatMap((bucket) => [bucket.reservations, bucket.queueCompleted])
+      : hourly.flatMap((bucket) => [bucket.reservations, bucket.queueCompleted])),
+  );
 
   return (
     <SafeAreaView style={styles.root} edges={['top']}>
@@ -116,7 +145,7 @@ export default function ManagerDashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        {/* Date filter */}
+        {/* Date filter — applies to the reservation track and the chart */}
         <View style={styles.filterRow}>
           {(['today', 'yesterday', 'week'] as Range[]).map((option) => (
             <Pressable
@@ -146,7 +175,7 @@ export default function ManagerDashboardScreen() {
           </View>
         ) : stats.isError ? (
           <ErrorState message={apiErrorMessage(stats.error)} onRetry={() => stats.refetch()} />
-        ) : !data ? (
+        ) : !data || !queue ? (
           <EmptyState
             title="No figures yet"
             message="Once reservations start coming in, your summary will appear here."
@@ -154,7 +183,20 @@ export default function ManagerDashboardScreen() {
           />
         ) : (
           <>
-            {/* Summary cards (FR10) */}
+            <InfoBox tone="info">
+              <AppText variant="secondary">
+                {range === 'week'
+                  ? `Two tracks: reservation figures show today (${data.date}), the chart below shows the last 7 days, and the queue tracker is live.`
+                  : `Two tracks: reservation figures are counted for ${data.date}; the takeaway queue tracker is live right now.`}
+              </AppText>
+            </InfoBox>
+
+            {/* Track 1 — table reservations (date-filtered, FR10) */}
+            <View style={styles.sectionHeader}>
+              <SectionTitle>Table reservations</SectionTitle>
+              <Badge label={range === 'week' ? 'Today' : data.date} tone="neutral" />
+            </View>
+
             <View style={styles.cards}>
               <SummaryCard
                 label="Total reservations"
@@ -170,56 +212,135 @@ export default function ManagerDashboardScreen() {
                 tone={colors.danger}
               />
               <SummaryCard
-                label="Avg wait"
-                value={data.avgWaitLabel}
-                hint={`${data.walkIns} seated from queue`}
+                label="Avg party size"
+                value={String(data.avgPartySize)}
+                hint={`across ${data.totalReservations} bookings`}
+                icon="people-outline"
+              />
+            </View>
+
+            <Card>
+              <SectionTitle>Operational detail</SectionTitle>
+              <AppText variant="secondary">
+                Booked parties for {data.date}: arrivals, expected guests,
+                finished tables, and current table capacity.
+              </AppText>
+              <View style={styles.detailGrid}>
+                <Detail label="Checked in" value={String(data.checkedIn)} />
+                <Detail label="Still expected" value={String(data.confirmed)} />
+                <Detail label="Completed" value={String(data.completed)} />
+                <Detail label="Free tables" value={String(data.tableSummary.available)} />
+              </View>
+            </Card>
+
+            {/* Track 2 — virtual queue tracker (live) */}
+            <View style={styles.sectionHeader}>
+              <SectionTitle>Virtual queue tracker</SectionTitle>
+              <Badge label="Live now" tone="success" />
+            </View>
+
+            <View style={styles.cards}>
+              <SummaryCard
+                label="In queue now"
+                value={String(queue.active)}
+                hint={`${queue.waiting} waiting · ${queue.ready} ready`}
+                icon="list-outline"
+                tone={colors.accent}
+              />
+              <SummaryCard
+                label="Joined today"
+                value={String(queue.joinedToday)}
+                hint={`${queue.collectedToday} collected`}
+                icon="walk-outline"
+                tone={colors.accent}
+              />
+              <SummaryCard
+                label="Avg pickup wait"
+                value={queue.avgPickupWaitLabel}
+                hint="From joining to collection"
                 icon="hourglass-outline"
                 tone={colors.warning}
               />
             </View>
 
             <Card>
-              <SectionTitle>Operational detail</SectionTitle>
+              <SectionTitle>Queue detail</SectionTitle>
+              <AppText variant="secondary">
+                Live line · full-line estimate {queue.currentWaitLabel}. Guests
+                collect at the counter — the queue never uses a table.
+              </AppText>
               <View style={styles.detailGrid}>
-                <Detail label="Checked in" value={String(data.checkedIn)} />
-                <Detail label="Still expected" value={String(data.confirmed)} />
-                <Detail label="Avg party size" value={String(data.avgPartySize)} />
-                <Detail label="Free tables" value={String(data.tableSummary.available)} />
+                <Detail label="Waiting" value={String(queue.waiting)} />
+                <Detail label="Preparing" value={String(queue.preparing)} />
+                <Detail label="Ready for pickup" value={String(queue.ready)} />
+                <Detail label="Collected today" value={String(queue.collectedToday)} />
               </View>
+              <InfoBox tone="warning">
+                <AppText variant="secondary">
+                  {queue.noShowsToday} no-shows · {queue.cancelledToday} left the
+                  queue today.
+                </AppText>
+              </InfoBox>
             </Card>
 
-            {/* Simple chart (FR10) */}
+            {/* Simple chart (FR10) — reservations + queue pickups */}
             <Card>
-              <SectionTitle>Reservations by hour</SectionTitle>
+              <SectionTitle>
+                {range === 'week' ? 'Reservations & pickups this week' : 'Reservations by hour'}
+              </SectionTitle>
               <AppText variant="secondary">
-                {data.date} · bars show bookings, the line shows average wait
+                {range === 'week'
+                  ? 'Each pair of bars is one day: bookings and takeaway pickups.'
+                  : `${data.date} · bars show bookings by hour and takeaway pickups by collection hour.`}
               </AppText>
 
-              {hourly.length === 0 ? (
+              {range === 'week' && daily.isLoading ? (
+                <Skeleton height={140} radius={radius.md} />
+              ) : range === 'week' && daily.isError ? (
+                <ErrorState
+                  message={apiErrorMessage(daily.error)}
+                  onRetry={() => daily.refetch()}
+                />
+              ) : (range === 'week' ? dailyData.length === 0 : hourly.length === 0) ? (
                 <InfoBox tone="info">
                   <AppText variant="secondary">
-                    No activity logged for this day yet.
+                    No activity logged for this period yet.
                   </AppText>
                 </InfoBox>
               ) : (
                 <>
                   <View style={styles.chart}>
-                    {hourly.map((bucket) => {
+                    {(range === 'week' ? dailyData : hourly).map((bucket) => {
                       const height = Math.max(4, Math.round((bucket.reservations / peak) * 96));
+                      const queueHeight = Math.max(4, Math.round((bucket.queueCompleted / peak) * 96));
+                      const bucketLabel = 'date' in bucket ? bucket.date.slice(5) : bucket.label;
                       return (
-                        <View key={bucket.hour} style={styles.barColumn}>
+                        <View
+                          key={'date' in bucket ? bucket.date : bucket.hour}
+                          style={styles.barColumn}
+                        >
                           <AppText variant="caption" style={styles.barValue}>
                             {bucket.reservations || ''}
                           </AppText>
-                          <View
-                            style={[
-                              styles.bar,
-                              { height },
-                              bucket.reservations === 0 && styles.barEmpty,
-                            ]}
-                          />
+                          <View style={styles.barGroup}>
+                            <View
+                              style={[
+                                styles.bar,
+                                { height },
+                                bucket.reservations === 0 && styles.barEmpty,
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.bar,
+                                styles.queueBar,
+                                { height: queueHeight },
+                                bucket.queueCompleted === 0 && styles.barEmpty,
+                              ]}
+                            />
+                          </View>
                           <AppText variant="caption" style={styles.barLabel}>
-                            {bucket.label}
+                            {bucketLabel}
                           </AppText>
                         </View>
                       );
@@ -233,9 +354,7 @@ export default function ManagerDashboardScreen() {
                     </View>
                     <View style={styles.legendItem}>
                       <View style={[styles.legendSwatch, { backgroundColor: colors.accent }]} />
-                      <AppText variant="caption">
-                        Avg wait · {data.avgWaitLabel}
-                      </AppText>
+                      <AppText variant="caption">Queue pickups</AppText>
                     </View>
                   </View>
                 </>
@@ -387,6 +506,12 @@ const styles = StyleSheet.create({
   filterActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   filterText: { color: colors.textSecondary },
   filterTextActive: { color: colors.textOnPrimary },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
   cards: { gap: spacing.md },
   summaryCard: { gap: spacing.xs },
   summaryTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -410,12 +535,19 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   barColumn: { flex: 1, alignItems: 'center', gap: 4, justifyContent: 'flex-end' },
+  barGroup: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+    height: 96,
+  },
   bar: {
     width: '70%',
     maxWidth: 22,
     borderRadius: 4,
     backgroundColor: colors.primary,
   },
+  queueBar: { backgroundColor: colors.accent },
   barEmpty: { backgroundColor: colors.border },
   barValue: { fontSize: 9, color: colors.textSecondary },
   barLabel: { fontSize: 9, color: colors.textMuted },

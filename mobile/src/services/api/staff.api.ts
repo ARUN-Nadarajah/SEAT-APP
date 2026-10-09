@@ -69,7 +69,7 @@ export async function fetchDailyBreakdown(
   options: { from?: string; days?: number } = {},
 ) {
   const { data } = await apiClient.get<
-    ApiEnvelope<{ date: string; reservations: number; seated: number }[]>
+    ApiEnvelope<{ date: string; reservations: number; queueCompleted: number }[]>
   >('/manager/daily', { params: { restaurantId, ...options } });
   return data;
 }

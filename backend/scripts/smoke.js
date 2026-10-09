@@ -259,6 +259,8 @@ async function main() {
       typeof stats.json?.data?.totalReservations === "number" &&
       typeof stats.json?.data?.noShows === "number" &&
       typeof stats.json?.data?.avgWaitMinutes === "number" &&
+      typeof stats.json?.data?.queue?.active === "number" &&
+      typeof stats.json?.data?.queue?.avgPickupWaitLabel === "string" &&
       Array.isArray(stats.json?.hourly),
     JSON.stringify(stats.json || {}).slice(0, 300),
   );

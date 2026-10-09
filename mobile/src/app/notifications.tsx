@@ -1,7 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -160,7 +169,11 @@ export default function NotificationsScreen() {
         ) : (
           <View style={styles.list}>
             {rows.map((item) => (
-              <View key={item.id} style={styles.notificationGroup}>
+              <Animated.View
+                key={item.id}
+                style={styles.notificationGroup}
+                entering={item.read ? undefined : FadeInDown.duration(420)}
+              >
                 <Pressable
                   onPress={() => onOpen(item.id, item.route)}
                   style={[styles.item, !item.read && styles.itemUnread]}
@@ -179,7 +192,7 @@ export default function NotificationsScreen() {
                       <AppText variant="label" style={styles.itemTitle} numberOfLines={1}>
                         {item.title}
                       </AppText>
-                      {!item.read ? <Badge label="New" tone="accent" /> : null}
+                      {!item.read ? <NewBadgePulse /> : null}
                       {item.type === 'offer' ? (
                         <Ionicons
                           name={expandedOfferId === item.id ? 'chevron-up' : 'chevron-down'}
@@ -201,7 +214,7 @@ export default function NotificationsScreen() {
                     loading={offerQuery.isLoading}
                   />
                 ) : null}
-              </View>
+              </Animated.View>
             ))}
           </View>
         )}
@@ -230,6 +243,36 @@ function Chip({
         {label}
       </AppText>
     </Pressable>
+  );
+}
+
+/**
+ * Gentle breathing glow on the "New" badge of an unread notification, so the
+ * green card visibly calls for attention. Stops itself under reduce-motion.
+ */
+function NewBadgePulse() {
+  const glow = useSharedValue(0);
+
+  useEffect(() => {
+    glow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
+        withTiming(0, { duration: 1100, easing: Easing.inOut(Easing.quad) }),
+      ),
+      -1,
+      false,
+    );
+  }, [glow]);
+
+  const style = useAnimatedStyle(() => ({
+    transform: [{ scale: 1 + glow.value * 0.12 }],
+    shadowOpacity: 0.15 + glow.value * 0.35,
+  }));
+
+  return (
+    <Animated.View style={[styles.newBadgePulse, style]}>
+      <Badge label="New" tone="accent" />
+    </Animated.View>
   );
 }
 
@@ -413,6 +456,12 @@ const styles = StyleSheet.create({
   },
   iconUnread: { backgroundColor: colors.accent },
   itemBody: { flex: 1, gap: 3 },
+  newBadgePulse: {
+    shadowColor: colors.accent,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
   itemTop: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   itemTitle: { flex: 1 },
   offerCard: {

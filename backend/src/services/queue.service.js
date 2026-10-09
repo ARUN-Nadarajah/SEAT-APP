@@ -241,6 +241,9 @@ async function leaveQueue(userId, entryId) {
       queueCode: entry.queueCode,
     },
     channel: "push",
+    // Bell-only alert: a venue with email prefs on would otherwise send one
+    // email to every staff member for every departing customer.
+    suppressEmail: true,
   });
   // Persist the staff notification before refreshing the dashboard via realtime events.
   emitQueueUpdated(entry.restaurantId, {

@@ -2,7 +2,8 @@ const Notification = require("../models/Notification");
 const User = require("../models/User");
 
 const { AppError } = require("../utils/errors");
-const { sendMail } = require("./email.service");
+// Property access (not destructured) so tests can spy on the mail channel.
+const emailService = require("./email.service");
 
 /**
  * Notifications (FR06 + spec §7).
@@ -43,6 +44,10 @@ function logSimulatedChannel(channel, recipient, title) {
 
 /**
  * Create + fan out one notification.
+ * @param {boolean} [input.suppressEmail] keep this alert in-app/push only —
+ *   no email even when the recipient has `prefs.email` enabled (used for the
+ *   per-customer "left the queue" venue alert, which would otherwise email
+ *   the whole staff on every departure).
  * @returns {Promise<object|null>} the stored notification, or null when the
  *   user has notifications disabled for every channel.
  */
@@ -56,6 +61,7 @@ async function notify(input, legacyType, legacyTitle, legacyBody) {
     data = {},
     channel = "push",
     referenceId = null,
+    suppressEmail = false,
   } = input && typeof input === "object"
     ? input
     : {
@@ -117,9 +123,9 @@ async function notify(input, legacyType, legacyTitle, legacyBody) {
     await sendExpoPush(user.pushToken, { title, body, data: { ...data, route } });
   }
 
-  if (prefs.email === true) {
+  if (!suppressEmail && prefs.email === true) {
     try {
-      await sendMail({
+      await emailService.sendMail({
         to: user.email,
         subject: title,
         text: body,
@@ -136,10 +142,17 @@ async function notify(input, legacyType, legacyTitle, legacyBody) {
   return notification;
 }
 
-/** Notify every active member of a venue's staff (staff dashboard events). */
+/**
+ * Notify every active member of a venue's staff (staff dashboard events).
+ *
+ * Self-registered staff carry no `restaurantId` (registration has no venue
+ * picker) yet they man the single staff dashboard, so venue-less staff
+ * receive the venue's events too — otherwise the dashboard bell would never
+ * light up for them, e.g. when a customer leaves the queue.
+ */
 async function notifyRestaurantStaff(restaurantId, payload) {
   const staff = await User.find({
-    restaurantId,
+    restaurantId: { $in: [restaurantId, null] },
     role: { $in: ["staff", "manager"] },
     isActive: true,
   })

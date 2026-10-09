@@ -6,6 +6,7 @@ const Notification = require('../src/models/Notification');
 const Restaurant = require('../src/models/Restaurant');
 const Order = require('../src/models/Order');
 const QueueEntry = require('../src/models/QueueEntry');
+const emailService = require('../src/services/email.service');
 
 /** A second guest so queue positions can be asserted beyond 1. */
 let guestCounter = 0;
@@ -149,6 +150,86 @@ describe('Virtual queue (FR03–FR06)', () => {
         .query({ restaurantId: fixture.restaurantId })
         .expect(200);
       expect(kitchen.body.data.some((item) => item.id === order.id)).toBe(false);
+  });
+
+  test('a venue-less staff account still gets the leave-queue bell notification', async () => {
+    // Self-registered staff have no restaurantId, but they man the single
+    // staff dashboard — the bell badge must light up for them anyway.
+    const venueless = await User.create({
+      name: 'Venue-less Staff',
+      email: 'guest200@test.local',
+      phone: '+94 77 000 0020',
+      passwordHash: await bcrypt.hash('Password123!', 12),
+      role: 'staff',
+      notificationPrefs: { push: false, email: false, sms: false, whatsapp: false },
+    });
+
+    const entry = await join(fixture.tokens.customer);
+
+    await api(fixture.tokens.customer).delete(`/api/queue/${entry.id}`).expect(200);
+
+    const notification = await Notification.findOne({
+      userId: String(venueless._id),
+      title: 'Customer left the queue',
+    });
+    expect(notification).toBeTruthy();
+    expect(notification.read).toBe(false);
+
+    // The bell badge reads the unread count from this endpoint.
+    const login = await api()
+      .post('/api/auth/login')
+      .send({ email: 'guest200@test.local', password: 'Password123!' })
+      .expect(200);
+
+    const list = await api(login.body.data.accessToken)
+      .get('/api/notifications')
+      .query({ unreadOnly: '1' })
+      .expect(200);
+    expect(list.body.unreadCount).toBeGreaterThan(0);
+  });
+
+  test('leave-queue alert is bell-only: no staff email per departing customer', async () => {
+    // Real venues default to notificationPrefs.email = true — enable it on
+    // the fixture staff so the assertion fails without the suppression.
+    await User.updateOne(
+      { _id: fixture.userIds.staff },
+      { $set: { 'notificationPrefs.email': true } },
+    );
+    const sendMailSpy = jest
+      .spyOn(emailService, 'sendMail')
+      .mockImplementation(async () => ({ messageId: 'test-stub' }));
+
+    try {
+      const entry = await join(fixture.tokens.customer);
+
+      await api(fixture.tokens.customer).delete(`/api/queue/${entry.id}`).expect(200);
+
+      // The in-app bell alert is still stored for the venue's staff…
+      const staffNotification = await Notification.findOne({
+        userId: fixture.userIds.staff,
+        title: 'Customer left the queue',
+      });
+      expect(staffNotification).toBeTruthy();
+      expect(staffNotification.read).toBe(false);
+
+      // …but no email goes out for it.
+      expect(sendMailSpy).not.toHaveBeenCalled();
+
+      // Positive control: an email-enabled customer joining the queue still
+      // sends mail — the spy is wired up and email is not disabled globally.
+      await User.updateOne(
+        { _id: fixture.userIds.customer },
+        { $set: { 'notificationPrefs.email': true } },
+      );
+      await join(fixture.tokens.customer);
+      expect(sendMailSpy).toHaveBeenCalled();
+    } finally {
+      sendMailSpy.mockRestore();
+      await User.updateMany(
+        { _id: { $in: [fixture.userIds.staff, fixture.userIds.customer] } },
+        { $set: { 'notificationPrefs.email': false } },
+      );
+    }
   });
 
   test('staff list shows the line in order (FR09)', async () => {
