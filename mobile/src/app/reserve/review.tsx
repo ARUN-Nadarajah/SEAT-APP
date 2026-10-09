@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   AppText,
+  Badge,
   Button,
   Card,
   InfoBox,
@@ -52,12 +53,24 @@ export default function ReviewScreen() {
     hourlyRate?: string;
     reservationFee?: string;
     durationMinutes?: string;
+    cart?: string;
+    foodTotal?: string;
   }>();
   const { showToast } = useFeedback();
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alternatives, setAlternatives] = useState<{ time: string; label: string }[]>([]);
+
+  let foodItems: { menuItemId?: string; id?: string; _id?: string; name: string; price: number; quantity: number; note?: string }[] = [];
+  try {
+    foodItems = JSON.parse(params.cart || '[]');
+  } catch {
+    foodItems = [];
+  }
+  const foodTotal = foodItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const tableFee = Number(params.reservationFee || 0);
+  const grandTotal = tableFee + foodTotal;
 
   const partySize = Number(params.partySize) || 2;
   const startTime = params.startTime || params.time || '12:00';
@@ -101,6 +114,16 @@ export default function ReviewScreen() {
         partySize,
         specialRequest: params.specialRequest || undefined,
         tableId: params.tableId || undefined,
+        items: foodItems.length > 0
+          ? foodItems.map((item) => ({
+              menuItemId: item.menuItemId || item.id || item._id || '',
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+              note: item.note,
+            }))
+          : undefined,
+        preOrderNotes: params.specialRequest || undefined,
       });
 
       router.replace({
@@ -112,6 +135,8 @@ export default function ReviewScreen() {
           reservationFee: params.reservationFee ?? '',
           date: params.date,
           timeRange: `${formatTime(startTime)} – ${formatTime(endTime)}`,
+          foodTotal: String(foodTotal),
+          foodCount: String(foodItems.reduce((acc, i) => acc + i.quantity, 0)),
         },
       });
     } catch (caught) {
@@ -193,8 +218,20 @@ export default function ReviewScreen() {
             />
             <Row
               icon="wallet-outline"
-              label="Total Fee"
-              value={`Rs. ${params.reservationFee || 0}`}
+              label="Table Fee"
+              value={`Rs. ${tableFee}`}
+            />
+            {foodTotal > 0 ? (
+              <Row
+                icon="fast-food-outline"
+                label="Food Pre-order"
+                value={`Rs. ${foodTotal}`}
+              />
+            ) : null}
+            <Row
+              icon="cash-outline"
+              label="Grand Total"
+              value={`Rs. ${grandTotal}`}
               highlight
             />
             {params.specialRequest ? (
@@ -202,6 +239,47 @@ export default function ReviewScreen() {
             ) : null}
           </View>
         </Card>
+
+        {foodItems.length > 0 ? (
+          <Card>
+            <View style={styles.cardHeaderRow}>
+              <AppText variant="title">Pre-ordered Food</AppText>
+              <Badge
+                label={`${foodItems.reduce((acc, i) => acc + i.quantity, 0)} items`}
+                tone="accent"
+              />
+            </View>
+
+            <View style={styles.foodList}>
+              {foodItems.map((item, idx) => (
+                <View key={idx} style={styles.foodItemRow}>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                      {item.quantity}× {item.name}
+                    </AppText>
+                    {item.note ? (
+                      <AppText variant="caption" style={{ color: colors.textMuted }}>
+                        Note: {item.note}
+                      </AppText>
+                    ) : null}
+                  </View>
+                  <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                    Rs. {item.price * item.quantity}
+                  </AppText>
+                </View>
+              ))}
+
+              <View style={styles.foodDivider} />
+
+              <View style={styles.foodTotalRow}>
+                <AppText variant="label">Food Subtotal</AppText>
+                <AppText variant="label" style={{ color: colors.primary }}>
+                  Rs. {foodTotal}
+                </AppText>
+              </View>
+            </View>
+          </Card>
+        ) : null}
 
         {/* 30-min turnaround buffer notice (Section 5, 11) */}
         <InfoBox tone="info">
@@ -252,7 +330,7 @@ export default function ReviewScreen() {
         ) : null}
 
         <Button
-          label={`Confirm reservation · Rs. ${params.reservationFee || 0}`}
+          label={`Confirm reservation · Rs. ${grandTotal}`}
           onPress={onConfirm}
           loading={submitting}
           testID="confirm-reservation"
@@ -328,4 +406,30 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   altText: { color: colors.primary },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  foodList: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  foodItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  foodDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: spacing.xs,
+  },
+  foodTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: spacing.xs,
+  },
 });

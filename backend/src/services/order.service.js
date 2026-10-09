@@ -241,7 +241,11 @@ async function createOrder(userId, data) {
  * Returns active kitchen orders: pending, confirmed, preparing, ready.
  */
 async function listKitchenOrders(restaurantId, requestedStatus) {
-  const filter = { restaurantId };
+  // Only queue orders are displayed in the kitchen screen; reservation orders are managed in the staff bookings screen
+  const filter = {
+    restaurantId,
+    orderType: "takeaway",
+  };
 
   if (requestedStatus) {
     if (!VALID_STATUSES.includes(requestedStatus)) {

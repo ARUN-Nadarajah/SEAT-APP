@@ -4,6 +4,8 @@ const Reservation = require("../models/Reservation");
 const Restaurant = require("../models/Restaurant");
 const Table = require("../models/Table");
 const User = require("../models/User");
+const Order = require("../models/Order");
+const Food = require("../models/Food");
 
 const { AppError } = require("../utils/errors");
 const { notify, notifyRestaurantStaff } = require("./notification.service");
@@ -249,6 +251,36 @@ async function createReservation(userId, payload) {
     const startDateTime = combineDateAndTime(date, startTime);
     const endDateTime = combineDateAndTime(date, endTime);
 
+    let preOrderItems = [];
+    let preOrderTotal = 0;
+    const rawItems = payload.items || payload.preOrderItems;
+    if (Array.isArray(rawItems) && rawItems.length > 0) {
+      let menuItems = restaurant.menuItems || [];
+      if (menuItems.length === 0) {
+        menuItems = await Food.find({
+          restaurantId: restaurant._id,
+          isAvailable: true,
+        }).lean();
+      }
+      preOrderItems = rawItems.map((item) => {
+        const qty = Number(item.quantity) || 1;
+        const menuItem = menuItems.find(
+          (candidate) => String(candidate._id) === String(item.menuItemId || item.id || item._id),
+        );
+        const name = menuItem ? menuItem.name : (item.name || "Item");
+        const price = menuItem ? menuItem.price : (Number(item.price) || 0);
+        return {
+          menuItemId: menuItem ? menuItem._id : item.menuItemId,
+          name,
+          price,
+          quantity: qty,
+          note: String(item.note || "").trim(),
+          totalAmount: qty * price,
+        };
+      });
+      preOrderTotal = preOrderItems.reduce((acc, curr) => acc + curr.totalAmount, 0);
+    }
+
     reservation = await Reservation.create({
       bookingId,
       userId,
@@ -268,7 +300,38 @@ async function createReservation(userId, payload) {
       guestPhone: payload.guestPhone || user?.phone || "",
       specialRequest: payload.specialRequest || "",
       notes: payload.notes || "",
+      preOrderItems,
+      preOrderTotal,
     });
+
+    if (preOrderItems.length > 0) {
+      try {
+        const orderCode = `ORD-${crypto.randomInt(1000, 10000)}`;
+        const order = await Order.create({
+          orderCode,
+          userId,
+          restaurantId: restaurant._id,
+          reservationId: reservation._id,
+          tableId: table._id,
+          items: preOrderItems.map((item) => ({
+            menuItemId: item.menuItemId,
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            notes: item.note,
+            totalAmount: item.totalAmount,
+          })),
+          totalAmount: preOrderTotal,
+          status: "placed",
+          orderType: "dine-in",
+          notes: payload.preOrderNotes || payload.specialRequest || "",
+        });
+        reservation.orderId = order._id;
+        await reservation.save();
+      } catch (orderErr) {
+        console.error("[reservation] Failed to create linked pre-order:", orderErr.message);
+      }
+    }
 
     await notify({
       userId,
@@ -342,10 +405,24 @@ async function listMine(userId, options = {}) {
   };
 }
 
-function isUpcoming(entry, now) {
+function isUpcoming(entry, now = new Date()) {
   if (["cancelled", "no-show", "completed"].includes(entry.status)) return false;
+  if (entry.endDateTime) {
+    return new Date(entry.endDateTime).getTime() >= now.getTime();
+  }
+  if (entry.startDateTime) {
+    return new Date(entry.startDateTime).getTime() >= now.getTime() - 60 * 60 * 1000;
+  }
+  const dateStr = entry.date instanceof Date
+    ? entry.date.toISOString().slice(0, 10)
+    : String(entry.date).slice(0, 10);
+  const timeStr = entry.endTime || entry.time || "12:00";
+  const end = combineDateAndTime(dateStr, timeStr);
+  if (end) {
+    return end.getTime() >= now.getTime();
+  }
   const start = new Date(entry.date);
-  const [hours, minutes] = String(entry.time).split(":").map(Number);
+  const [hours, minutes] = String(entry.time || "00:00").split(":").map(Number);
   start.setUTCHours(hours || 0, minutes || 0, 0, 0);
   return start.getTime() >= now.getTime() - 60 * 60 * 1000;
 }
@@ -354,7 +431,7 @@ function sortAscending(a, b) {
   return new Date(a.date) - new Date(b.date);
 }
 
-function shapeForCustomer(entry) {
+function shapeForCustomer(entry, now = new Date()) {
   const restaurant = entry.restaurantId;
   const table = entry.tableId;
   const hourlyRate =
@@ -366,6 +443,9 @@ function shapeForCustomer(entry) {
     entry.reservationFee !== undefined && entry.reservationFee !== null
       ? entry.reservationFee
       : Math.round(hourlyRate * (durationMinutes / 60));
+
+  const isPast = !isUpcoming(entry, now);
+  const canEdit = !isPast && !["cancelled", "completed", "no-show", "cancellation_pending"].includes(entry.status);
 
   return {
     id: entry._id,
@@ -383,6 +463,18 @@ function shapeForCustomer(entry) {
     endDateTime: entry.endDateTime || null,
     specialRequest: entry.specialRequest,
     guestName: entry.guestName,
+    preOrderItems: (entry.preOrderItems || []).map((item) => ({
+      menuItemId: item.menuItemId ? String(item.menuItemId) : "",
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+      totalAmount: item.totalAmount !== undefined ? item.totalAmount : item.price * item.quantity,
+      note: item.note || "",
+    })),
+    preOrderTotal: entry.preOrderTotal || 0,
+    orderId: entry.orderId ? String(entry.orderId) : null,
+    isPast,
+    canEdit,
     tableId: table?._id ? String(table._id) : (table ? String(table) : ""),
     tableNumber: table?.tableNumber || "",
     tableCapacity: table?.capacity || null,
@@ -458,10 +550,11 @@ async function updateReservation(id, requestingUser, payload) {
     );
   }
 
-  if (["cancelled", "completed", "no-show"].includes(reservation.status)) {
+  const now = new Date();
+  if (!isUpcoming(reservation, now) || ["cancelled", "completed", "no-show"].includes(reservation.status)) {
     throw new AppError(
-      "This booking can no longer be changed.",
-      409,
+      "Past or closed reservations cannot be changed.",
+      400,
       "reservation_closed",
     );
   }
@@ -688,8 +781,9 @@ async function requestCancellation(id, requestingUser, rawReason) {
     );
   }
 
-  if (["cancelled", "completed", "no-show"].includes(reservation.status)) {
-    throw new AppError("This booking is already closed.", 409, "reservation_closed");
+  const now = new Date();
+  if (!isUpcoming(reservation, now) || ["cancelled", "completed", "no-show"].includes(reservation.status)) {
+    throw new AppError("Past or closed reservations cannot be cancelled.", 400, "reservation_closed");
   }
 
   reservation.status = "cancellation_pending";
