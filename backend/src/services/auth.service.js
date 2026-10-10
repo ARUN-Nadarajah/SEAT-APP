@@ -73,11 +73,12 @@ async function createOtpChallenge({ email, purpose, payload, recipientName }) {
     expiresAt: otpExpiryDate(),
   });
 
-  await sendMail({
-    to: normalizeEmail(email),
-    subject: `Seat App verification code`,
-    text: `Your Seat App verification code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`,
-    html: `
+  try {
+    await sendMail({
+      to: normalizeEmail(email),
+      subject: `Seat App verification code`,
+      text: `Your Seat App verification code is ${code}. It expires in ${OTP_EXPIRES_MINUTES} minutes.`,
+      html: `
 			<div style="font-family: Arial, sans-serif; line-height: 1.5; color: #23181A;">
 				<h2 style="color: #6B1E2E;">Seat App verification code</h2>
 				<p>Hello ${recipientName || "there"},</p>
@@ -86,7 +87,11 @@ async function createOtpChallenge({ email, purpose, payload, recipientName }) {
 				<p>This code expires in ${OTP_EXPIRES_MINUTES} minutes.</p>
 			</div>
 		`,
-  });
+    });
+  } catch (error) {
+    console.warn(`[auth:email] Failed to deliver OTP email to ${email}:`, error.message);
+    console.info(`[auth:otp] Fallback OTP code for ${email}: ${code}`);
+  }
 
   if (NODE_ENV !== "production") {
     console.info(`[otp:dev] ${purpose} code for ${email}: ${code}`);

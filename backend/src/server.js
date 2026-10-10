@@ -1,5 +1,12 @@
 require("dotenv").config();
 
+const dns = require("dns");
+// Prioritize IPv4 DNS lookups so cloud platforms without IPv6 routing
+// (such as Render Linux containers) do not fail with ENETUNREACH.
+if (typeof dns.setDefaultResultOrder === "function") {
+  dns.setDefaultResultOrder("ipv4first");
+}
+
 const http = require("http");
 
 const app = require("./app");

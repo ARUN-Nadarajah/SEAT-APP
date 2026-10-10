@@ -22,6 +22,7 @@ const apiLimiter = rateLimit({
   max: RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   skip: () => NODE_ENV === "test",
   handler: (req, res) => res.status(429).json(message),
 });
@@ -35,6 +36,7 @@ const authLimiter = rateLimit({
   max: AUTH_RATE_LIMIT_MAX,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   skip: () => NODE_ENV === "test",
   handler: (req, res) => res.status(429).json({
     ...message,

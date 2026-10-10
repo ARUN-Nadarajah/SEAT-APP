@@ -33,15 +33,20 @@ module.exports = {
   RATE_LIMIT_MAX: intEnv("RATE_LIMIT_MAX", 300),
   AUTH_RATE_LIMIT_MAX: intEnv("AUTH_RATE_LIMIT_MAX", 20),
 
+  // --- Reverse proxy trust (Render / Heroku / AWS ALB / Nginx) ---
+  TRUST_PROXY: env("TRUST_PROXY", "1"),
+
   // --- CORS ---
   CORS_ORIGIN: env("CORS_ORIGIN", "*"),
 
-  // --- Email (nodemailer; logs to console when unconfigured) ---
+  // --- Email (Resend HTTP API or nodemailer SMTP) ---
+  RESEND_API_KEY: env("RESEND_API_KEY", ""),
   SMTP_HOST: env("SMTP_HOST", ""),
   SMTP_PORT: intEnv("SMTP_PORT", 587),
   SMTP_SECURE: env("SMTP_SECURE", "false") === "true",
   SMTP_USER: env("SMTP_USER", ""),
   SMTP_PASS: env("SMTP_PASS", ""),
+  SMTP_CONNECTION_TIMEOUT_MS: intEnv("SMTP_CONNECTION_TIMEOUT_MS", 5000),
   EMAIL_FROM: env("EMAIL_FROM", "SEAT App <no-reply@seat-app.local>"),
 
   // --- Push notifications (Expo) ---
