@@ -124,15 +124,6 @@ export default function LoginScreen() {
             </AppText>
           </InfoBox>
 
-          {/* Demo credentials from the seed script (README §Demo accounts). */}
-          <InfoBox tone="info">
-            <AppText variant="label">Demo accounts</AppText>
-            <AppText variant="secondary">
-              customer@seat.lk · staff@seat.lk · manager@seat.lk
-              {'\n'}Password: Password123!
-            </AppText>
-          </InfoBox>
-
           <View style={styles.footer}>
             <AppText variant="secondary">New to SEAT?</AppText>
             <Link href="/(auth)/register" asChild>

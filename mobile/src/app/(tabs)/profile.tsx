@@ -23,8 +23,8 @@ type PrefKey = 'push' | 'email' | 'sms' | 'whatsapp';
 const PREF_ROWS: { key: PrefKey; label: string; hint: string }[] = [
   { key: 'push', label: 'Push notifications', hint: 'Instant alerts on this device' },
   { key: 'email', label: 'Email', hint: 'Booking confirmations and receipts' },
-  { key: 'sms', label: 'SMS', hint: 'Simulated channel — demo only' },
-  { key: 'whatsapp', label: 'WhatsApp', hint: 'Simulated channel — demo only' },
+  { key: 'sms', label: 'SMS', hint: 'Text message alerts' },
+  { key: 'whatsapp', label: 'WhatsApp', hint: 'WhatsApp alerts' },
 ];
 
 /**
