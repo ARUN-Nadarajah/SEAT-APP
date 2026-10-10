@@ -84,13 +84,17 @@ function extractSnapshotData(reservation, user, restaurant, table, version) {
       specialRequest: reservation.specialRequest || "",
       guestName: reservation.guestName || user?.name || "",
       guestPhone: reservation.guestPhone || user?.phone || "",
+      preOrderItems: reservation.preOrderItems || [],
+      preOrderTotal: reservation.preOrderTotal || 0,
     },
     pricing: {
       hourlyRate,
       durationHours,
       durationMinutes,
-      subtotal: reservationFee,
+      subtotal: reservationFee + (reservation.preOrderTotal || 0),
       reservationFee,
+      preOrderTotal: reservation.preOrderTotal || 0,
+      totalAmount: reservationFee + (reservation.preOrderTotal || 0),
       currency: "LKR",
     },
     payment: {

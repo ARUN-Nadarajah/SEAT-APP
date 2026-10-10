@@ -469,7 +469,15 @@ export default function StaffDashboardScreen() {
     return true;
   });
 
-  const displayedKitchenOrders = (kitchen.data?.data ?? []).filter((order) => {
+  const queueOrdersInKitchen = (kitchen.data?.data ?? []).filter((order) => {
+    // Only queue orders are displayed in kitchen screen
+    if (order.orderType && order.orderType !== 'takeaway' && !order.queueEntryId) {
+      return false;
+    }
+    return true;
+  });
+
+  const displayedKitchenOrders = queueOrdersInKitchen.filter((order) => {
     if (kitchenFilter === 'all') return true;
     return order.status === kitchenFilter;
   });
@@ -873,6 +881,32 @@ export default function StaffDashboardScreen() {
                       </View>
                     ) : null}
 
+                    {booking.preOrderItems && booking.preOrderItems.length > 0 ? (
+                      <View style={styles.bookingPreOrderBox}>
+                        <View style={styles.bookingPreOrderHeader}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="fast-food-outline" size={15} color={colors.primary} />
+                            <AppText variant="label" style={{ color: colors.primary }}>
+                              Pre-ordered Food ({booking.preOrderItems.reduce((acc, i) => acc + i.quantity, 0)} items)
+                            </AppText>
+                          </View>
+                          <AppText variant="label" style={{ color: colors.textPrimary }}>
+                            Rs. {booking.preOrderTotal || booking.preOrderItems.reduce((acc, i) => acc + (i.totalAmount ?? i.price * i.quantity), 0)}
+                          </AppText>
+                        </View>
+                        {booking.preOrderItems.map((item, idx) => (
+                          <View key={idx} style={styles.bookingPreOrderItem}>
+                            <AppText variant="bodyMedium" style={{ flex: 1, fontWeight: '500' }}>
+                              {item.quantity}× {item.name}
+                            </AppText>
+                            <AppText variant="secondary">
+                              Rs. {item.totalAmount ?? item.price * item.quantity}
+                            </AppText>
+                          </View>
+                        ))}
+                      </View>
+                    ) : null}
+
                     {booking.status === 'confirmed' ? (
                       <Button
                         label="Check in"
@@ -1038,9 +1072,9 @@ export default function StaffDashboardScreen() {
                       ]}
                     >
                       {filter === 'all'
-                        ? `All (${kitchen.data?.data?.length ?? 0})`
-                        :                         `${filter === 'placed' ? 'New' : filter.charAt(0).toUpperCase() + filter.slice(1)} (${
-                            kitchen.data?.data?.filter((o) => o.status === filter).length ?? 0
+                        ? `All (${queueOrdersInKitchen.length})`
+                        : `${filter === 'placed' ? 'New' : filter.charAt(0).toUpperCase() + filter.slice(1)} (${
+                            queueOrdersInKitchen.filter((o) => o.status === filter).length
                           })`}
                     </AppText>
                   </Pressable>
@@ -1690,6 +1724,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.xs,
+  },
+  bookingPreOrderBox: {
+    backgroundColor: colors.infoBox,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: spacing.sm,
+    gap: 4,
+    marginTop: 4,
+  },
+  bookingPreOrderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  bookingPreOrderItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
 });
 

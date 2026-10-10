@@ -663,10 +663,10 @@ function TableCardItem({
             />
           ) : (
             <Button
-              label={table.status === 'reserved' ? 'Reserved' : 'Unavailable'}
-              disabled
+              label="View Available Times"
+              onPress={onSelect}
               variant="secondary"
-              accessibilityLabel={`${tableLabel} is currently unavailable`}
+              accessibilityLabel={`View available times for ${tableLabel}`}
             />
           )}
         </View>

@@ -138,6 +138,47 @@ const reservationSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+    preOrderItems: [
+      {
+        menuItemId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Restaurant",
+        },
+        name: {
+          type: String,
+          required: true,
+        },
+        quantity: {
+          type: Number,
+          required: true,
+          min: 1,
+        },
+        price: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+        totalAmount: {
+          type: Number,
+          required: true,
+          min: 0,
+        },
+        note: {
+          type: String,
+          default: "",
+        },
+      },
+    ],
+    preOrderTotal: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -169,6 +210,9 @@ reservationSchema.methods.toPublic = function toPublic() {
     status: this.status,
     guestName: this.guestName,
     specialRequest: this.specialRequest,
+    preOrderItems: this.preOrderItems || [],
+    preOrderTotal: this.preOrderTotal || 0,
+    orderId: this.orderId || null,
     checkedInAt: this.checkedInAt,
     cancelledAt: this.cancelledAt,
     cancellationRequestedAt: this.cancellationRequestedAt,

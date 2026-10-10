@@ -121,6 +121,26 @@ export default function ProfileScreen() {
           </View>
         </Card>
 
+        {/* Bookings */}
+        <Card>
+          <SectionTitle>Bookings & Reservations</SectionTitle>
+          <AppText variant="secondary">View your upcoming and past table reservations.</AppText>
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm }}>
+            <Button
+              label="My bookings"
+              variant="secondary"
+              onPress={() => router.push('/(tabs)/bookings')}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label="Past reservations"
+              variant="secondary"
+              onPress={() => router.push({ pathname: '/(tabs)/bookings', params: { tab: 'Past' } } as any)}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Card>
+
         {/* Edit details */}
         <Card>
           <SectionTitle>Orders</SectionTitle>

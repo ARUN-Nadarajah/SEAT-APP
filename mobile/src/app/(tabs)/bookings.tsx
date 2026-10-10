@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
@@ -24,7 +24,16 @@ const TABS = ['Upcoming', 'Past'] as const;
  * My Bookings (spec §5) — Upcoming / Past tabs with "Manage reservation".
  */
 export default function BookingsScreen() {
-  const [tab, setTab] = useState<(typeof TABS)[number]>('Upcoming');
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<(typeof TABS)[number]>(
+    params.tab === 'Past' ? 'Past' : 'Upcoming'
+  );
+
+  useEffect(() => {
+    if (params.tab === 'Past' || params.tab === 'Upcoming') {
+      setTab(params.tab);
+    }
+  }, [params.tab]);
 
   const bookings = useApiQuery(['bookings'], fetchMyBookings);
 
@@ -49,6 +58,7 @@ export default function BookingsScreen() {
             style={[styles.tab, tab === label && styles.tabActive]}
             accessibilityRole="tab"
             accessibilityState={{ selected: tab === label }}
+            testID={`tab-${label.toLowerCase()}`}
           >
             <AppText
               variant="label"
@@ -60,7 +70,17 @@ export default function BookingsScreen() {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={Boolean(bookings.isRefetching)}
+            onRefresh={() => bookings.refetch()}
+            tintColor={colors.primary}
+          />
+        }
+      >
         <LastUpdated timestamp={bookings.data?.lastUpdated} />
 
         {bookings.isLoading ? (
@@ -92,7 +112,11 @@ export default function BookingsScreen() {
         ) : (
           <View style={styles.list}>
             {rows.map((booking) => (
-              <BookingCard key={booking.id} booking={booking} />
+              <BookingCard
+                key={booking.id}
+                booking={booking}
+                isPast={tab === 'Past' || Boolean(booking.isPast)}
+              />
             ))}
           </View>
         )}
@@ -101,7 +125,7 @@ export default function BookingsScreen() {
   );
 }
 
-function BookingCard({ booking }: { booking: Booking }) {
+function BookingCard({ booking, isPast }: { booking: Booking; isPast?: boolean }) {
   const tone =
     booking.status === 'cancelled' || booking.status === 'no-show'
       ? 'danger'
@@ -140,6 +164,14 @@ function BookingCard({ booking }: { booking: Booking }) {
             {booking.tableNumber ? `Table ${booking.tableNumber}` : 'Table assigned on arrival'}
           </AppText>
         </View>
+        {booking.preOrderItems && booking.preOrderItems.length > 0 ? (
+          <View style={styles.meta}>
+            <Ionicons name="restaurant-outline" size={14} color={colors.primary} />
+            <AppText variant="caption" style={{ color: colors.primary, fontWeight: '600' }}>
+              {booking.preOrderItems.reduce((acc, i) => acc + i.quantity, 0)} food items pre-ordered
+            </AppText>
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.cardActions}>
@@ -151,11 +183,12 @@ function BookingCard({ booking }: { booking: Booking }) {
           style={styles.cardReceiptBtn}
         />
         <Button
-          label="Manage reservation"
+          label={isPast ? 'View reservation' : 'Manage reservation'}
           variant="secondary"
           onPress={() => router.push(`/bookings/${booking.id}`)}
-          accessibilityLabel={`Manage reservation ${booking.bookingId}`}
+          accessibilityLabel={`${isPast ? 'View' : 'Manage'} reservation ${booking.bookingId}`}
           style={styles.cardManageBtn}
+          testID={`manage-booking-${booking.id}`}
         />
       </View>
     </Card>

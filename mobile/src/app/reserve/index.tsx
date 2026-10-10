@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   AppText,
+  Badge,
   Button,
   Card,
+  EmptyState,
   ErrorState,
   Field,
   InfoBox,
@@ -22,10 +24,12 @@ import {
 import { useApiQuery } from '@/hooks/useApi';
 import {
   apiErrorMessage,
+  fetchMenu,
   fetchRestaurant,
   fetchRestaurants,
   fetchSlotAvailability,
   fetchTables,
+  type MenuItem,
   type Table,
 } from '@/services/api';
 import { colors, radius, spacing } from '@/theme';
@@ -78,6 +82,12 @@ export default function ReserveScreen() {
   const [specialRequest, setSpecialRequest] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Pre-ordered food items state
+  const [cart, setCart] = useState<Record<string, { item: MenuItem; quantity: number; note?: string }>>({});
+  const [menuModalVisible, setMenuModalVisible] = useState(false);
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuFilterCategory, setMenuFilterCategory] = useState<string>('all');
+
   // Restaurant details query
   const restaurantQuery = useApiQuery(
     ['restaurant', restaurantId],
@@ -85,6 +95,68 @@ export default function ReserveScreen() {
     { enabled: Boolean(restaurantId) },
   );
   const restaurant = restaurantQuery.data?.data;
+
+  // Restaurant menu query for pre-orders
+  const menuQuery = useApiQuery(
+    ['menu', restaurantId],
+    () => fetchMenu(restaurantId),
+    { enabled: Boolean(restaurantId) },
+  );
+  const menuCategories = menuQuery.data?.data?.categories ?? [];
+  const menuItems = menuQuery.data?.data?.items ?? [];
+
+  const cartLines = useMemo(() => Object.values(cart).filter((line) => line.quantity > 0), [cart]);
+  const foodTotal = useMemo(
+    () => cartLines.reduce((acc, curr) => acc + curr.item.price * curr.quantity, 0),
+    [cartLines],
+  );
+  const foodItemCount = useMemo(
+    () => cartLines.reduce((acc, curr) => acc + curr.quantity, 0),
+    [cartLines],
+  );
+
+  function updateCartItem(item: MenuItem, delta: number) {
+    const key = item.menuItemId ?? item.id ?? item._id ?? item.name;
+    setCart((prev) => {
+      const current = prev[key]?.quantity ?? 0;
+      const next = Math.max(0, current + delta);
+      if (next === 0) {
+        const copy = { ...prev };
+        delete copy[key];
+        return copy;
+      }
+      return {
+        ...prev,
+        [key]: { item, quantity: next },
+      };
+    });
+  }
+
+  function removeCartItem(key: string) {
+    setCart((prev) => {
+      const copy = { ...prev };
+      delete copy[key];
+      return copy;
+    });
+  }
+
+  function clearCart() {
+    setCart({});
+  }
+
+  const filteredMenuItems = useMemo(() => {
+    let list = menuItems;
+    if (menuFilterCategory !== 'all') {
+      list = list.filter((i) => i.category === menuFilterCategory);
+    }
+    if (menuSearch.trim()) {
+      const q = menuSearch.toLowerCase();
+      list = list.filter(
+        (i) => i.name.toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [menuItems, menuFilterCategory, menuSearch]);
 
   // Venue tables query (table selection is priority)
   const tablesQuery = useApiQuery(
@@ -219,6 +291,15 @@ export default function ReserveScreen() {
         hourlyRate: String(selectedTable.hourlyReservationRate || 300),
         reservationFee: String(reservationFee),
         durationMinutes: String(durationMinutes),
+        cart: JSON.stringify(
+          cartLines.map((l) => ({
+            ...l.item,
+            menuItemId: l.item.menuItemId ?? l.item.id ?? l.item._id,
+            quantity: l.quantity,
+            note: l.note,
+          })),
+        ),
+        foodTotal: String(foodTotal),
         ...(restaurant ? { restaurantName: restaurant.name } : {}),
       },
     });
@@ -489,9 +570,107 @@ export default function ReserveScreen() {
               hourlyRate={selectedTable?.hourlyReservationRate ?? 300}
             />
 
-            {/* 5 — Special request */}
+            {/* 5 — Pre-order food (optional) */}
             <Card>
-              <SectionTitle>5. Special requests (optional)</SectionTitle>
+              <View style={styles.sectionHeaderRow}>
+                <SectionTitle>5. Pre-order food from menu (optional)</SectionTitle>
+                {cartLines.length > 0 ? (
+                  <Pressable onPress={clearCart} hitSlop={8}>
+                    <AppText variant="caption" style={{ color: colors.danger, fontWeight: '600' }}>
+                      Clear all
+                    </AppText>
+                  </Pressable>
+                ) : null}
+              </View>
+              <AppText variant="caption" style={styles.sectionSubtitle}>
+                Choose dishes now so the kitchen prepares them fresh for your table arrival.
+              </AppText>
+
+              {cartLines.length === 0 ? (
+                <View style={styles.emptyFoodCard}>
+                  <Ionicons name="restaurant-outline" size={32} color={colors.primary} />
+                  <AppText variant="bodyMedium" style={{ fontWeight: '600', textAlign: 'center' }}>
+                    No food pre-ordered yet
+                  </AppText>
+                  <AppText variant="caption" style={{ color: colors.textSecondary, textAlign: 'center' }}>
+                    Skip waiting at the restaurant. You can choose meals from our full menu now.
+                  </AppText>
+                  <Button
+                    label="Browse menu & choose food"
+                    variant="secondary"
+                    onPress={() => setMenuModalVisible(true)}
+                    testID="open-food-modal"
+                    style={{ marginTop: spacing.xs }}
+                  />
+                </View>
+              ) : (
+                <View style={styles.selectedFoodList}>
+                  {cartLines.map(({ item, quantity }) => {
+                    const key = item.menuItemId ?? item.id ?? item._id ?? item.name;
+                    return (
+                      <View key={key} style={styles.selectedFoodRow}>
+                        <View style={{ flex: 1, gap: 2 }}>
+                          <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                            {item.name}
+                          </AppText>
+                          <AppText variant="caption" style={{ color: colors.textSecondary }}>
+                            LKR {item.price.toLocaleString()} each · Subtotal: LKR {(item.price * quantity).toLocaleString()}
+                          </AppText>
+                        </View>
+                        <View style={styles.foodQtyStepper}>
+                          <Pressable
+                            onPress={() => updateCartItem(item, -1)}
+                            style={styles.foodQtyBtn}
+                            hitSlop={8}
+                            accessibilityLabel={`Decrease ${item.name}`}
+                          >
+                            <Ionicons name="remove" size={16} color={colors.primary} />
+                          </Pressable>
+                          <AppText variant="label" style={styles.foodQtyText}>
+                            {quantity}
+                          </AppText>
+                          <Pressable
+                            onPress={() => updateCartItem(item, 1)}
+                            style={styles.foodQtyBtn}
+                            hitSlop={8}
+                            accessibilityLabel={`Increase ${item.name}`}
+                          >
+                            <Ionicons name="add" size={16} color={colors.primary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => removeCartItem(key)}
+                            style={[styles.foodQtyBtn, { marginLeft: spacing.xs }]}
+                            hitSlop={8}
+                            accessibilityLabel={`Remove ${item.name}`}
+                          >
+                            <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  <View style={styles.foodSubtotalDivider} />
+                  <View style={styles.foodSubtotalRow}>
+                    <AppText variant="label">Food Pre-order Total</AppText>
+                    <AppText variant="heading" style={{ color: colors.primary }}>
+                      LKR {foodTotal.toLocaleString()}
+                    </AppText>
+                  </View>
+
+                  <Button
+                    label="+ Add more dishes"
+                    variant="secondary"
+                    onPress={() => setMenuModalVisible(true)}
+                    style={{ marginTop: spacing.xs }}
+                  />
+                </View>
+              )}
+            </Card>
+
+            {/* 6 — Special request */}
+            <Card>
+              <SectionTitle>6. Special requests (optional)</SectionTitle>
               <Field
                 label="Notes for the restaurant"
                 value={specialRequest}
@@ -516,7 +695,9 @@ export default function ReserveScreen() {
         <Button
           label={
             selectedTable && selectedTable.capacity >= partySize && durationMinutes >= 30
-              ? `Review booking · Rs. ${reservationFee}`
+              ? foodTotal > 0
+                ? `Review booking · Rs. ${reservationFee} + Food LKR ${foodTotal.toLocaleString()}`
+                : `Review booking · Rs. ${reservationFee}`
               : selectedTable && selectedTable.capacity >= partySize && durationMinutes < 30
               ? 'Select duration to continue'
               : 'Select a table to continue'
@@ -532,6 +713,187 @@ export default function ReserveScreen() {
           testID="reserve-review"
         />
       </View>
+
+      {/* Food Selection Modal */}
+      <Modal
+        visible={menuModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setMenuModalVisible(false)}
+      >
+        <SafeAreaView style={styles.modalRoot} edges={['top', 'bottom']}>
+          <View style={styles.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="heading">Choose Food from Menu</AppText>
+              <AppText variant="caption">Pre-order for your table reservation</AppText>
+            </View>
+            <Pressable
+              onPress={() => setMenuModalVisible(false)}
+              style={styles.modalCloseBtn}
+              hitSlop={10}
+              accessibilityLabel="Close menu"
+            >
+              <Ionicons name="close" size={22} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          {/* Search bar */}
+          <View style={styles.modalSearchShell}>
+            <Ionicons name="search" size={16} color={colors.textMuted} />
+            <TextInput
+              style={styles.modalSearchInput}
+              value={menuSearch}
+              onChangeText={setMenuSearch}
+              placeholder="Search dishes or ingredients…"
+              placeholderTextColor={colors.textMuted}
+            />
+            {menuSearch ? (
+              <Pressable onPress={() => setMenuSearch('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+              </Pressable>
+            ) : null}
+          </View>
+
+          {/* Categories row */}
+          {menuCategories.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.modalCategoryRow}
+            >
+              <Pressable
+                onPress={() => setMenuFilterCategory('all')}
+                style={[
+                  styles.modalCategoryChip,
+                  menuFilterCategory === 'all' && styles.modalCategoryChipActive,
+                ]}
+              >
+                <AppText
+                  variant="caption"
+                  style={[
+                    styles.modalCategoryChipText,
+                    menuFilterCategory === 'all' && styles.modalCategoryChipTextActive,
+                  ]}
+                >
+                  All ({menuItems.length})
+                </AppText>
+              </Pressable>
+              {menuCategories.map((cat) => (
+                <Pressable
+                  key={cat.name}
+                  onPress={() => setMenuFilterCategory(cat.name)}
+                  style={[
+                    styles.modalCategoryChip,
+                    menuFilterCategory === cat.name && styles.modalCategoryChipActive,
+                  ]}
+                >
+                  <AppText
+                    variant="caption"
+                    style={[
+                      styles.modalCategoryChipText,
+                      menuFilterCategory === cat.name && styles.modalCategoryChipTextActive,
+                    ]}
+                  >
+                    {cat.name} ({cat.items.length})
+                  </AppText>
+                </Pressable>
+              ))}
+            </ScrollView>
+          ) : null}
+
+          {/* Menu items list */}
+          <ScrollView contentContainerStyle={styles.modalItemList} showsVerticalScrollIndicator={false}>
+            {menuQuery.isLoading ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: spacing.xl }} />
+            ) : filteredMenuItems.length === 0 ? (
+              <EmptyState
+                title="No dishes found"
+                message="Try adjusting your search or category filter."
+                glyph="🍽️"
+              />
+            ) : (
+              filteredMenuItems.map((item) => {
+                const key = item.menuItemId ?? item.id ?? item._id ?? item.name;
+                const qty = cart[key]?.quantity ?? 0;
+                return (
+                  <View key={key} style={styles.modalMenuItemCard}>
+                    <View style={styles.modalItemLeft}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                          {item.name}
+                        </AppText>
+                        {item.isVegetarian ? (
+                          <Badge label="Veg" tone="success" />
+                        ) : null}
+                      </View>
+                      {item.description ? (
+                        <AppText variant="caption" style={{ color: colors.textSecondary }} numberOfLines={2}>
+                          {item.description}
+                        </AppText>
+                      ) : null}
+                      <AppText variant="label" style={{ color: colors.primary, marginTop: 4 }}>
+                        LKR {item.price.toLocaleString()}
+                      </AppText>
+                    </View>
+
+                    <View style={styles.modalItemRight}>
+                      {qty === 0 ? (
+                        <Pressable
+                          onPress={() => updateCartItem(item, 1)}
+                          style={styles.modalAddBtn}
+                          hitSlop={6}
+                        >
+                          <Ionicons name="add" size={18} color={colors.primary} />
+                          <AppText variant="caption" style={{ color: colors.primary, fontWeight: '700' }}>
+                            Add
+                          </AppText>
+                        </Pressable>
+                      ) : (
+                        <View style={styles.modalStepper}>
+                          <Pressable
+                            onPress={() => updateCartItem(item, -1)}
+                            style={styles.modalStepBtn}
+                            hitSlop={6}
+                          >
+                            <Ionicons name="remove" size={16} color={colors.primary} />
+                          </Pressable>
+                          <AppText variant="label" style={styles.modalStepQty}>
+                            {qty}
+                          </AppText>
+                          <Pressable
+                            onPress={() => updateCartItem(item, 1)}
+                            style={styles.modalStepBtn}
+                            hitSlop={6}
+                          >
+                            <Ionicons name="add" size={16} color={colors.primary} />
+                          </Pressable>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </ScrollView>
+
+          {/* Modal bottom bar */}
+          <View style={styles.modalBottomBar}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="caption" style={{ color: colors.textSecondary }}>
+                {foodItemCount} {foodItemCount === 1 ? 'item' : 'items'} selected
+              </AppText>
+              <AppText variant="heading" style={{ color: colors.textPrimary }}>
+                LKR {foodTotal.toLocaleString()}
+              </AppText>
+            </View>
+            <Button
+              label={foodItemCount > 0 ? 'Done adding food' : 'Close'}
+              onPress={() => setMenuModalVisible(false)}
+              style={{ minWidth: 160 }}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -675,6 +1037,184 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.surface,
     marginTop: spacing.xs,
+  },
+  emptyFoodCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.xs,
+    marginTop: spacing.xs,
+  },
+  selectedFoodList: {
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  selectedFoodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  foodQtyStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  foodQtyBtn: {
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  foodQtyText: {
+    minWidth: 24,
+    textAlign: 'center',
+    fontWeight: '700',
+  },
+  foodSubtotalDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginTop: spacing.xs,
+  },
+  foodSubtotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  modalRoot: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  modalSearchShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    height: 42,
+    gap: spacing.xs,
+  },
+  modalSearchInput: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: 14,
+  },
+  modalCategoryRow: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  modalCategoryChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  modalCategoryChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  modalCategoryChipText: {
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  modalCategoryChipTextActive: {
+    color: colors.textOnPrimary,
+  },
+  modalItemList: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing['4xl'],
+    gap: spacing.sm,
+  },
+  modalMenuItemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: spacing.md,
+  },
+  modalItemLeft: {
+    flex: 1,
+    gap: 2,
+  },
+  modalItemRight: {
+    alignItems: 'flex-end',
+  },
+  modalAddBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  modalStepper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.pill,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 4,
+  },
+  modalStepBtn: {
+    padding: 6,
+  },
+  modalStepQty: {
+    minWidth: 22,
+    textAlign: 'center',
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  modalBottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });
 

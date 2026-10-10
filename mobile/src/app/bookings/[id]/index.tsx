@@ -72,6 +72,30 @@ export default function ReservationDetailsScreen() {
   const isPendingCancellation = booking.status === 'cancellation_pending';
   const closed = ['cancelled', 'completed', 'no-show'].includes(booking.status);
 
+  const dateLabel = new Date(booking.date).toLocaleDateString(undefined, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+
+  const reservationDateTime = booking.startDateTime
+    ? new Date(booking.startDateTime)
+    : new Date(`${booking.date.slice(0, 10)}T${booking.startTime || booking.time || '12:00'}:00`);
+  const hoursUntilReservation = (reservationDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
+  const isWithin24Hours = hoursUntilReservation < 24 && hoursUntilReservation > 0;
+
+  const isPast = Boolean(
+    booking.isPast ||
+    closed ||
+    (reservationDateTime.getTime() < Date.now())
+  );
+  const canEdit = Boolean(
+    (booking.canEdit ?? !isPast) &&
+    !isPast &&
+    !isPendingCancellation &&
+    !closed
+  );
+
   async function onSubmitCancellation() {
     const trimmed = cancellationReason.trim();
     if (!trimmed) {
@@ -92,18 +116,6 @@ export default function ReservationDetailsScreen() {
       setSubmittingCancellation(false);
     }
   }
-
-  const dateLabel = new Date(booking.date).toLocaleDateString(undefined, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-
-  const reservationDateTime = booking.startDateTime
-    ? new Date(booking.startDateTime)
-    : new Date(`${booking.date.slice(0, 10)}T${booking.startTime || booking.time || '12:00'}:00`);
-  const hoursUntilReservation = (reservationDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
-  const isWithin24Hours = hoursUntilReservation < 24 && hoursUntilReservation > 0;
 
   const timeRangeLabel = booking.endTime
     ? `${formatTime(booking.startTime || booking.time)} – ${formatTime(booking.endTime)}`
@@ -255,6 +267,50 @@ export default function ReservationDetailsScreen() {
           </InfoBox>
         ) : null}
 
+        {/* Pre-ordered Food */}
+        {booking.preOrderItems && booking.preOrderItems.length > 0 ? (
+          <Card>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: spacing.xs }}>
+              <Ionicons name="fast-food-outline" size={18} color={colors.primary} />
+              <AppText variant="heading">Pre-ordered Food</AppText>
+            </View>
+            <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
+              {booking.preOrderItems.map((item, idx) => (
+                <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyMedium" style={{ fontWeight: '600' }}>
+                      {item.quantity}× {item.name}
+                    </AppText>
+                    {item.note ? (
+                      <AppText variant="caption" style={{ color: colors.textSecondary }}>Note: {item.note}</AppText>
+                    ) : null}
+                  </View>
+                  <AppText variant="label">
+                    LKR {(item.totalAmount || item.price * item.quantity).toLocaleString()}
+                  </AppText>
+                </View>
+              ))}
+              <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.xs }} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <AppText variant="heading">Food Total</AppText>
+                <AppText variant="heading" style={{ color: colors.primary }}>
+                  LKR {(booking.preOrderTotal || 0).toLocaleString()}
+                </AppText>
+              </View>
+            </View>
+          </Card>
+        ) : null}
+
+        {/* Past reservation note */}
+        {isPast && !isPendingCancellation && booking.status !== 'cancelled' ? (
+          <InfoBox tone="info">
+            <AppText variant="label">Past reservation</AppText>
+            <AppText variant="secondary">
+              This reservation has passed and can no longer be edited or cancelled.
+            </AppText>
+          </InfoBox>
+        ) : null}
+
         {/* View Receipt Document */}
         <Button
           label="View Reservation Receipt"
@@ -277,7 +333,7 @@ export default function ReservationDetailsScreen() {
               disabled
             />
           </View>
-        ) : !closed ? (
+        ) : canEdit ? (
           <View style={styles.actions}>
             <Button
               label="Change reservation"

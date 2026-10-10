@@ -18,6 +18,8 @@ export default function ReservationConfirmedScreen() {
     reservationFee,
     date,
     timeRange,
+    foodTotal,
+    foodCount,
   } = useLocalSearchParams<{
     bookingId?: string;
     reservationId?: string;
@@ -25,7 +27,11 @@ export default function ReservationConfirmedScreen() {
     reservationFee?: string;
     date?: string;
     timeRange?: string;
+    foodTotal?: string;
+    foodCount?: string;
   }>();
+
+  const countNum = Number(foodCount || 0);
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -77,6 +83,15 @@ export default function ReservationConfirmedScreen() {
                 <AppText variant="secondary">Reservation Fee:</AppText>
                 <AppText variant="label" style={{ color: colors.primary }}>
                   Rs. {reservationFee}
+                </AppText>
+              </View>
+            ) : null}
+
+            {countNum > 0 ? (
+              <View style={styles.metaRow}>
+                <AppText variant="secondary">Pre-ordered Food:</AppText>
+                <AppText variant="label" style={{ color: colors.primary }}>
+                  {countNum} item{countNum > 1 ? 's' : ''} (Rs. {foodTotal || 0})
                 </AppText>
               </View>
             ) : null}

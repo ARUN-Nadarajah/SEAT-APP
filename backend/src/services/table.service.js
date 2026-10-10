@@ -118,6 +118,8 @@ async function listTables({ restaurantId, date }) {
 
   const bookingDate = date || today();
 
+  await releaseExpiredReservationTables();
+
   const tables = await Table.find({ restaurantId: targetRestaurantId })
     .sort({ tableNumber: 1 })
     .lean();
@@ -137,6 +139,41 @@ async function listTables({ restaurantId, date }) {
     date: bookingDate,
     lastUpdated: new Date().toISOString(),
   };
+}
+
+/**
+ * Release tables whose active reservation has reached its selected end time.
+ * Reservation time ranges remain the source of truth for booking availability;
+ * this keeps the staff floor status in sync for reservations that were checked in.
+ */
+async function releaseExpiredReservationTables(now = new Date()) {
+  const expiredReservations = await Reservation.find({
+    endDateTime: { $ne: null, $lte: now },
+    status: { $in: ["confirmed", "checked-in", "cancellation_pending"] },
+  }).select("_id tableId restaurantId").lean();
+
+  for (const reservation of expiredReservations) {
+    const table = await Table.findOneAndUpdate(
+      {
+        _id: reservation.tableId,
+        status: { $in: ["occupied", "reserved"] },
+      },
+      {
+        $set: {
+          status: "available",
+          statusChangedAt: now,
+          statusChangedBy: null,
+        },
+      },
+      { new: true },
+    );
+
+    if (table) {
+      emitTableUpdated(table.restaurantId, buildTablePayload(table.toObject()));
+    }
+  }
+
+  return expiredReservations.length;
 }
 
 async function updateTable(tableId, updates, user) {
@@ -212,6 +249,8 @@ async function getAvailableTables({
   endTime,
   partySize,
 }) {
+  await releaseExpiredReservationTables();
+
   let targetRestaurantId = restaurantId;
   if (!targetRestaurantId) {
     const defaultRestaurant = await Restaurant.findOne({ status: { $ne: "inactive" } }).lean();
@@ -463,6 +502,7 @@ module.exports = {
   getSlotAvailability,
   updateTable,
   updateTableStatus,
+  releaseExpiredReservationTables,
   replaceTables,
   ensureRestaurantExists,
   STATUSES,
