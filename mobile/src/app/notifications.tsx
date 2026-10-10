@@ -337,7 +337,7 @@ function OfferCard({
         </View>
         <Pressable
           style={styles.bookButton}
-          onPress={() => restaurantId && router.push(`/restaurant/${restaurantId}` as never)}
+          onPress={() => router.push('/(tabs)/explore')}
           accessibilityRole="button"
           accessibilityLabel="Book a table"
         >
