@@ -31,7 +31,7 @@ const ROLE_OPTIONS: { value: Role; label: string; blurb: string }[] = [
 ];
 
 /**
- * Register (spec §5: "role selection for demo") + privacy notice (NFR04).
+ * Register (spec §5: role selection) + privacy notice (NFR04).
  * Two steps in one screen: details → email OTP, keeping the flow short.
  */
 export default function RegisterScreen() {
@@ -132,7 +132,7 @@ export default function RegisterScreen() {
 
           {!otpRequested ? (
             <View style={styles.form}>
-              {/* Spec §5 — role selection for demo accounts. */}
+              {/* Spec §5 — role selection. */}
               <View style={styles.block}>
                 <AppText variant="label" style={styles.blockLabel}>
                   I’m signing in as

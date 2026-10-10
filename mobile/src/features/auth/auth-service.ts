@@ -112,7 +112,7 @@ export async function requestRegisterOtp(input: {
   email: string;
   phone: string;
   password: string;
-  /** Spec §5: role selection for demo accounts. */
+  /** Spec §5: role selection. */
   role?: 'customer' | 'staff' | 'manager';
 }): Promise<{ challenge: AuthOtpChallenge; message: string }> {
   const response = await apiRequest<AuthOtpChallenge>("/auth/register/request-otp", {
