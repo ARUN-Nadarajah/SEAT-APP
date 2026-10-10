@@ -397,21 +397,33 @@ async function listMine(userId, options = {}) {
 
   return {
     data: {
-      upcoming: upcoming.map(shapeForCustomer),
-      past: past.map(shapeForCustomer),
-      all: reservations.map(shapeForCustomer),
+      upcoming: upcoming.map((entry) => shapeForCustomer(entry, now)),
+      past: past.map((entry) => shapeForCustomer(entry, now)),
+      all: reservations.map((entry) => shapeForCustomer(entry, now)),
     },
     lastUpdated: now.toISOString(),
   };
 }
 
+function toValidDate(val) {
+  if (val instanceof Date && !Number.isNaN(val.getTime())) {
+    return val;
+  }
+  if (typeof val === "string" || (typeof val === "number" && val > 1_000_000_000)) {
+    const d = new Date(val);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
 function isUpcoming(entry, now = new Date()) {
+  const currentDate = toValidDate(now);
   if (["cancelled", "no-show", "completed"].includes(entry.status)) return false;
   if (entry.endDateTime) {
-    return new Date(entry.endDateTime).getTime() >= now.getTime();
+    return new Date(entry.endDateTime).getTime() >= currentDate.getTime();
   }
   if (entry.startDateTime) {
-    return new Date(entry.startDateTime).getTime() >= now.getTime() - 60 * 60 * 1000;
+    return new Date(entry.startDateTime).getTime() >= currentDate.getTime() - 60 * 60 * 1000;
   }
   const dateStr = entry.date instanceof Date
     ? entry.date.toISOString().slice(0, 10)
@@ -419,12 +431,12 @@ function isUpcoming(entry, now = new Date()) {
   const timeStr = entry.endTime || entry.time || "12:00";
   const end = combineDateAndTime(dateStr, timeStr);
   if (end) {
-    return end.getTime() >= now.getTime();
+    return end.getTime() >= currentDate.getTime();
   }
   const start = new Date(entry.date);
   const [hours, minutes] = String(entry.time || "00:00").split(":").map(Number);
   start.setUTCHours(hours || 0, minutes || 0, 0, 0);
-  return start.getTime() >= now.getTime() - 60 * 60 * 1000;
+  return start.getTime() >= currentDate.getTime() - 60 * 60 * 1000;
 }
 
 function sortAscending(a, b) {
@@ -432,6 +444,7 @@ function sortAscending(a, b) {
 }
 
 function shapeForCustomer(entry, now = new Date()) {
+  const currentDate = toValidDate(now);
   const restaurant = entry.restaurantId;
   const table = entry.tableId;
   const hourlyRate =
@@ -444,7 +457,7 @@ function shapeForCustomer(entry, now = new Date()) {
       ? entry.reservationFee
       : Math.round(hourlyRate * (durationMinutes / 60));
 
-  const isPast = !isUpcoming(entry, now);
+  const isPast = !isUpcoming(entry, currentDate);
   const canEdit = !isPast && !["cancelled", "completed", "no-show", "cancellation_pending"].includes(entry.status);
 
   return {
