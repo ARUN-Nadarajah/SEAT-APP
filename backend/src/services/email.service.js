@@ -19,7 +19,10 @@ function hasResendConfiguration() {
 }
 
 function hasSmtpConfiguration() {
-  return Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
+  const host = process.env.SMTP_HOST || SMTP_HOST;
+  const user = process.env.SMTP_USER || SMTP_USER;
+  const pass = process.env.SMTP_PASS || SMTP_PASS;
+  return Boolean(host && user && pass);
 }
 
 function getTransporter() {
@@ -28,17 +31,28 @@ function getTransporter() {
   }
 
   if (!cachedTransporter) {
+    const host = process.env.SMTP_HOST || SMTP_HOST;
+    const port = Number(process.env.SMTP_PORT || SMTP_PORT) || 587;
+    // For port 587, STARTTLS requires secure: false.
+    const isPort587 = port === 587;
+    const secure = isPort587
+      ? false
+      : port === 465 || process.env.SMTP_SECURE === "true" || SMTP_SECURE === true;
+    const user = process.env.SMTP_USER || SMTP_USER;
+    const pass = process.env.SMTP_PASS || SMTP_PASS;
+
     cachedTransporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_SECURE,
+      host,
+      port,
+      secure,
       auth: {
-        user: SMTP_USER,
-        pass: SMTP_PASS,
+        user,
+        pass,
       },
-      connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS || 5000,
-      greetingTimeout: SMTP_CONNECTION_TIMEOUT_MS || 5000,
-      socketTimeout: SMTP_CONNECTION_TIMEOUT_MS || 5000,
+      family: 4, // Force IPv4 to prevent ENETUNREACH errors on hosts without IPv6 routing
+      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
+      greetingTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
+      socketTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
     });
   }
 
@@ -91,13 +105,17 @@ async function sendMail({ to, subject, text, html }) {
   }
 
   // 3. Fallback when neither provider is configured
-  if (NODE_ENV === "production" && process.env.STRICT_EMAIL === "true") {
+  if ((process.env.NODE_ENV || NODE_ENV) === "production" && process.env.STRICT_EMAIL === "true") {
     throw new Error("No email service configured (set RESEND_API_KEY or SMTP credentials).");
   }
 
-  console.info(`[mail:fallback] To: ${to} | Subject: ${subject}`);
-  if (text) {
-    console.info(`[mail:fallback] Body: ${text}`);
+  if ((process.env.NODE_ENV || NODE_ENV) !== "production") {
+    console.info(`[mail:fallback] To: ${to} | Subject: ${subject}`);
+    if (text) {
+      console.info(`[mail:fallback] Body: ${text}`);
+    }
+  } else {
+    console.info(`[mail:fallback] Simulated email to ${to} (Subject: ${subject})`);
   }
   return { messageId: "fallback-console" };
 }

@@ -90,10 +90,12 @@ async function createOtpChallenge({ email, purpose, payload, recipientName }) {
     });
   } catch (error) {
     console.warn(`[auth:email] Failed to deliver OTP email to ${email}:`, error.message);
-    console.info(`[auth:otp] Fallback OTP code for ${email}: ${code}`);
+    if (process.env.NODE_ENV !== "production" && NODE_ENV !== "production") {
+      console.info(`[auth:otp] Fallback OTP code for ${email}: ${code}`);
+    }
   }
 
-  if (NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production" && NODE_ENV !== "production") {
     console.info(`[otp:dev] ${purpose} code for ${email}: ${code}`);
   }
 
