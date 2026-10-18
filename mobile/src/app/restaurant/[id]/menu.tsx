@@ -280,6 +280,9 @@ export default function MenuScreen() {
   }, [menu, search]);
 
   const selectedCategory = activeCategory ?? visibleCategories[0]?.name ?? null;
+  // Child index of the search + category row: the takeaway notice (rendered
+  // only for takeaway orders) sits in front of it and shifts it by one.
+  const stickyControlsIndex = orderType === 'takeaway' ? 2 : 1;
 
   function changeQuantity(item: MenuItem, delta: number) {
     if (hasActiveQueue) return;
@@ -306,13 +309,31 @@ export default function MenuScreen() {
   }
 
   function handleScroll(event: {
-    nativeEvent: { contentOffset: { y: number } };
+    nativeEvent: {
+      contentOffset: { y: number };
+      contentSize: { height: number };
+      layoutMeasurement: { height: number };
+    };
   }) {
-    const marker = event.nativeEvent.contentOffset.y + controlsHeight + 12;
-    let current = visibleCategories[0]?.name ?? null;
-    for (const category of visibleCategories) {
-      const offset = sectionOffsets[category.name];
-      if (offset !== undefined && offset <= marker) current = category.name;
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const categories = visibleCategories;
+    if (categories.length === 0) return;
+    const scrollable = contentSize.height - layoutMeasurement.height;
+    // Nothing to track while the page fits on screen — keep the chip the guest
+    // tapped lit instead of snapping back to the first section.
+    if (scrollable <= 8) return;
+
+    let current: string;
+    if (contentOffset.y >= scrollable - 8) {
+      // The closing section can never cross the marker, so the list bottom wins.
+      current = categories[categories.length - 1].name;
+    } else {
+      const marker = contentOffset.y + controlsHeight + 12;
+      current = categories[0].name;
+      for (const category of categories) {
+        const offset = sectionOffsets[category.name];
+        if (offset !== undefined && offset <= marker) current = category.name;
+      }
     }
     setActiveCategory((previous) => (previous === current ? previous : current));
   }
@@ -399,12 +420,14 @@ export default function MenuScreen() {
           styles.content,
           totalItems > 0 ? styles.contentWithBar : null,
         ]}
-        stickyHeaderIndices={[1]}
+        stickyHeaderIndices={[stickyControlsIndex]}
         onScroll={handleScroll}
         scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/* The takeaway notice below sits above the sticky search row, so it
+            shifts the sticky index by one when it renders. */}
         <View style={styles.hero}>
           <AppText variant="title">
             A taste of {menu?.restaurant.name ?? 'the kitchen'}
@@ -537,13 +560,16 @@ export default function MenuScreen() {
           />
         ) : (
           visibleCategories.map((category) => (
-            <View key={category.name}>
-              <View
-                style={styles.sectionHead}
-                onLayout={(event) =>
-                  handleSectionLayout(category.name, event.nativeEvent.layout.y)
-                }
-              >
+            // onLayout sits on the section wrapper: the offset has to be the
+            // section's position inside the scroll content, not inside its own
+            // heading row, or every chip reads the same (zero) position.
+            <View
+              key={category.name}
+              onLayout={(event) =>
+                handleSectionLayout(category.name, event.nativeEvent.layout.y)
+              }
+            >
+              <View style={styles.sectionHead}>
                 <AppText variant="heading">{category.name}</AppText>
                 <AppText variant="caption">
                   {category.items.length} item{category.items.length === 1 ? '' : 's'}

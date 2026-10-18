@@ -63,7 +63,9 @@ async function recomputePositions(restaurantId) {
     entries.map(async (entry, index) => {
       const position = index + 1;
       const ordersAhead = index;
-      const estimatedWait = ordersAhead * average;
+      // Everyone ahead still has to cook, and so does this guest's own order,
+      // so a first-in-line parcel never reports a 0 min wait.
+      const estimatedWait = (ordersAhead + 1) * average;
       await QueueEntry.updateOne(
         { _id: entry._id },
         { position, estimatedWait },
@@ -390,7 +392,8 @@ async function getQueuePreview(restaurantId) {
   if (!restaurant) throw new AppError("Restaurant not found.", 404, "not_found");
   const snapshot = await recomputePositions(restaurantId);
   const ordersAhead = snapshot.length;
-  const minutes = ordersAhead * preparationMinutes(restaurant);
+  // Same maths as an active entry: the line ahead plus your own cooking time.
+  const minutes = (ordersAhead + 1) * preparationMinutes(restaurant);
   return {
     data: {
       restaurantId: restaurant._id,
