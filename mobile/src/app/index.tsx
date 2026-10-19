@@ -197,7 +197,7 @@ function AnimatedPhoto({ enabled }: { enabled: boolean }) {
         accessibilityLabel="A table of shared dishes"
       />
       <Animated.View style={[styles.pill, pillStyle]}>
-        <AppText style={styles.pillText}>YOUR EVENING, RECLAIMED</AppText>
+        <AppText style={styles.pillText}>YOUR DAY, RECLAIMED</AppText>
       </Animated.View>
     </Animated.View>
   );
@@ -381,7 +381,7 @@ const styles = StyleSheet.create({
     color: colors.textOnPrimary,
   },
   photoShell: {
-    height: 272,
+    height: 450,
     borderRadius: 30,
     overflow: 'hidden',
     backgroundColor: colors.primaryMuted,
