@@ -136,7 +136,8 @@ Statuses: `confirmed`, `checked-in`, `cancelled`, `completed`, `no-show`.
   "lastUpdated":"2026-10-03T12:00:00.000Z" }
 ```
 
-**Wait estimate** = `ordersAhead × averagePreparationMinutes`.
+**Wait estimate** = `(ordersAhead + 1) × averagePreparationMinutes` — the guests ahead
+plus your own order's cooking time, so an empty queue still estimates a real wait.
 
 Errors: `409 queue_disabled`, `409 already_in_queue`, `409 queue_empty`.
 

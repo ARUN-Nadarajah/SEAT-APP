@@ -53,7 +53,8 @@ describe('Virtual queue (FR03–FR06)', () => {
       .query({ restaurantId: fixture.restaurantId })
       .expect(200);
 
-    expect(response.body.data.estimatedWaitLabel).toMatch(/\d+ min/);
+    // Even with an empty line the guest still waits on their own cooking time.
+    expect(response.body.data.estimatedWaitLabel).toMatch(/^[1-9]\d* min$/);
     expect(response.body.data.ordersAhead).toBe(0);
     expect(response.body.lastUpdated).toEqual(expect.any(String));
   });
@@ -64,7 +65,8 @@ describe('Virtual queue (FR03–FR06)', () => {
     expect(entry.queueCode).toMatch(/^Q-\d{4}$/);
     expect(entry.position).toBe(1);
     expect(entry.ordersAhead).toBe(0);
-    expect(entry.estimateLabel).toMatch(/\d+ min/);
+    expect(entry.estimatedWait).toBeGreaterThan(0);
+    expect(entry.estimateLabel).toMatch(/^[1-9]\d* min$/);
     expect(entry.stage).toBe('joined');
   });
 

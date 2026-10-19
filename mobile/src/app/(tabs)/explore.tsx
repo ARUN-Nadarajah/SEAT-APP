@@ -218,12 +218,6 @@ export default function ExploreScreen() {
     [venues],
   );
 
-  // "Queue · 15–25 min" pill for cards whose venue has an active queue.
-  const queueBadgeLabel =
-    restaurant && restaurant.isQueueEnabled && restaurant.queueLength > 0
-      ? `Queue · ${restaurant.walkInWaitLabel.replace(' walk-in wait', '')}`
-      : null;
-
   function onJoinQueue() {
     const target = queueEnabledVenues[0];
     if (!target) {
@@ -507,7 +501,6 @@ export default function ExploreScreen() {
               <TableCardItem
                 key={table.id || table.tableNumber}
                 table={table}
-                queueBadge={queueBadgeLabel}
                 onSelect={() => onSelectTable(table)}
               />
             ))}
@@ -587,11 +580,9 @@ export default function ExploreScreen() {
  */
 function TableCardItem({
   table,
-  queueBadge,
   onSelect,
 }: {
   table: Table;
-  queueBadge?: string | null;
   onSelect: () => void;
 }) {
   const isAvailable = table.status === 'available';
@@ -619,11 +610,6 @@ function TableCardItem({
         <View style={styles.imageOverlayBadge}>
           <Badge label={statusLabel} tone={statusTone} />
         </View>
-        {queueBadge ? (
-          <View style={styles.imageOverlayQueue}>
-            <Badge label={queueBadge} tone="accent" />
-          </View>
-        ) : null}
       </View>
 
       {/* Card Body */}
@@ -937,11 +923,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: spacing.md,
     right: spacing.md,
-  },
-  imageOverlayQueue: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
   },
   cardBody: {
     padding: spacing.lg,
