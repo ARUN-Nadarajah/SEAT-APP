@@ -2,11 +2,22 @@ const { api, fixture } = require("./setup");
 const Table = require("../src/models/Table");
 const Reservation = require("../src/models/Reservation");
 
-const today = () => new Date().toISOString().slice(0, 10);
+const {
+  localDateString,
+  parseLocalDateTime,
+  validateReservationDateTime,
+} = require("../src/utils/time");
+
+const today = () => localDateString(new Date());
+const pastDate = (daysAgo) => {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return localDateString(d);
+};
 const futureDate = (daysAhead) => {
   const d = new Date();
   d.setDate(d.getDate() + daysAhead);
-  return d.toISOString().slice(0, 10);
+  return localDateString(d);
 };
 
 describe("Real-World Reservation System Redesign (Section 21 Tests)", () => {
@@ -531,6 +542,180 @@ describe("Real-World Reservation System Redesign (Section 21 Tests)", () => {
       expect(endMap["12:00"]).toBe(false);
       expect(endMap["13:00"]).toBe(false);
       expect(endMap["14:00"]).toBe(false);
+    });
+  });
+
+  // 13. Past-time and dynamic date/time validation
+  describe("13. Past-time and dynamic date/time validation", () => {
+    test("Unit validation: validateReservationDateTime enforces complete date/time against current clock", () => {
+      const fixedNow = new Date(2026, 9, 19, 11, 0, 0); // Oct 19, 2026, 11:00 AM local
+      const fixedToday = "2026-10-19";
+      const fixedTomorrow = "2026-10-20";
+      const fixedYesterday = "2026-10-18";
+
+      // 1. Past date fails
+      expect(() =>
+        validateReservationDateTime(fixedYesterday, "12:00", "13:00", fixedNow),
+      ).toThrow("Bookings cannot be made in the past.");
+
+      // 2. Today earlier time (10:00 AM) fails
+      expect(() =>
+        validateReservationDateTime(fixedToday, "10:00", "11:00", fixedNow),
+      ).toThrow("Reservation start time cannot be in the past.");
+
+      // 3. Today 10:30 AM fails
+      expect(() =>
+        validateReservationDateTime(fixedToday, "10:30", "11:30", fixedNow),
+      ).toThrow("Reservation start time cannot be in the past.");
+
+      // 4. Today exact current time (11:00 AM) fails (must be strictly > currentDateTime)
+      expect(() =>
+        validateReservationDateTime(fixedToday, "11:00", "12:00", fixedNow),
+      ).toThrow("Reservation start time cannot be in the past.");
+
+      // 5. Today future time (11:30 AM) succeeds
+      const validToday = validateReservationDateTime(
+        fixedToday,
+        "11:30",
+        "12:30",
+        fixedNow,
+      );
+      expect(validToday.durationMinutes).toBe(60);
+
+      // 6. Future date (Tomorrow) at 08:00 AM succeeds even though 08:00 AM has passed today
+      const validTomorrow = validateReservationDateTime(
+        fixedTomorrow,
+        "08:00",
+        "09:00",
+        fixedNow,
+      );
+      expect(validTomorrow.durationMinutes).toBe(60);
+
+      // 7. End time equal to start time fails
+      expect(() =>
+        validateReservationDateTime(fixedTomorrow, "12:00", "12:00", fixedNow),
+      ).toThrow("Reservation end time must be after start time.");
+
+      // 8. End time before start time fails
+      expect(() =>
+        validateReservationDateTime(fixedTomorrow, "14:00", "13:00", fixedNow),
+      ).toThrow("Reservation end time must be after start time.");
+
+      // 9. End time after closing time (22:00) fails
+      expect(() =>
+        validateReservationDateTime(fixedTomorrow, "21:30", "22:30", fixedNow),
+      ).toThrow("Reservations must end by closing time (10:00 PM).");
+    });
+
+    test("API: rejects reservation booking for yesterday with 400 validation_error", async () => {
+      const yesterday = pastDate(1);
+      const res = await api(fixture.tokens.customer)
+        .post("/api/reservations")
+        .send({
+          restaurantId: fixture.restaurantId,
+          tableId: table4Id,
+          date: yesterday,
+          startTime: "12:00",
+          endTime: "13:00",
+          partySize: 2,
+        })
+        .expect(400);
+
+      expect(res.body.code).toBe("validation_error");
+      expect(res.body.message).toMatch(/Bookings cannot be made in the past/i);
+    });
+
+    test("API: rejects booking when end time is equal to or before start time", async () => {
+      const future = futureDate(4);
+      const res = await api(fixture.tokens.customer)
+        .post("/api/reservations")
+        .send({
+          restaurantId: fixture.restaurantId,
+          tableId: table4Id,
+          date: future,
+          startTime: "14:00",
+          endTime: "14:00",
+          partySize: 2,
+        })
+        .expect(400);
+
+      expect(res.body.code).toBe("validation_error");
+      expect(res.body.message).toMatch(/Reservation end time must be after start time/i);
+    });
+
+    test("API: allows early morning reservation on future date (08:00 AM tomorrow)", async () => {
+      const tomorrow = futureDate(1);
+      const res = await api(fixture.tokens.customer)
+        .post("/api/reservations")
+        .send({
+          restaurantId: fixture.restaurantId,
+          tableId: table4Id,
+          date: tomorrow,
+          startTime: "08:00",
+          endTime: "09:00",
+          partySize: 2,
+        })
+        .expect(201);
+
+      expect(res.body.data.reservation.time).toBe("08:00");
+      expect(res.body.data.reservation.endTime).toBe("09:00");
+      expect(res.body.data.reservation.status).toBe("confirmed");
+    });
+
+    test("Service: createReservation rejects past start time on today", async () => {
+      const reservationService = require("../src/services/reservation.service");
+      const mockNow = new Date(2026, 9, 19, 14, 0, 0); // 2:00 PM local
+      await expect(
+        reservationService.createReservation(
+          fixture.userIds.customer,
+          {
+            restaurantId: fixture.restaurantId,
+            tableId: table4Id,
+            date: "2026-10-19",
+            startTime: "10:00",
+            endTime: "11:00",
+            partySize: 2,
+          },
+          mockNow,
+        ),
+      ).rejects.toThrow("Reservation start time cannot be in the past.");
+    });
+
+    test("API: slot-availability marks past slots on today as available: false and isPast: true", async () => {
+      const res = await api(fixture.tokens.customer)
+        .get(
+          `/api/tables/slot-availability?restaurantId=${fixture.restaurantId}&date=${today()}&partySize=2&tableId=${table4Id}`,
+        )
+        .expect(200);
+
+      const startSlots = res.body.data.startSlots;
+      expect(startSlots.length).toBeGreaterThan(0);
+
+      const now = new Date();
+      startSlots.forEach((slot) => {
+        const slotDate = parseLocalDateTime(today(), slot.time);
+        const shouldBePast = slotDate.getTime() <= now.getTime();
+        if (shouldBePast) {
+          expect(slot.isPast).toBe(true);
+          expect(slot.available).toBe(false);
+          expect(slot.tableCount).toBe(0);
+        }
+      });
+    });
+
+    test("API: slot-availability on future date does not mark 08:00 AM as past", async () => {
+      const tomorrow = futureDate(1);
+      const res = await api(fixture.tokens.customer)
+        .get(
+          `/api/tables/slot-availability?restaurantId=${fixture.restaurantId}&date=${tomorrow}&partySize=2&tableId=${table4Id}`,
+        )
+        .expect(200);
+
+      const startSlots = res.body.data.startSlots;
+      const slot8am = startSlots.find((s) => s.time === "08:00");
+      expect(slot8am).toBeDefined();
+      expect(slot8am.isPast).toBe(false);
+      expect(slot8am.available).toBe(true);
     });
   });
 });

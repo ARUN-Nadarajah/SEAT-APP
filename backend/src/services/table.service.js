@@ -11,6 +11,8 @@ const {
   formatTime,
   validateReservationDate,
   validateReservationTimeRange,
+  validateReservationDateTime,
+  isFutureReservationDateTime,
 } = require("../utils/time");
 const {
   blockingReservations,
@@ -261,9 +263,8 @@ async function getAvailableTables({
     }
   }
 
-  const validDate = validateReservationDate(date);
-  const { startMinutes, endMinutes, durationMinutes, durationHours } =
-    validateReservationTimeRange(startTime, endTime);
+  const { date: validDate, startMinutes, endMinutes, durationMinutes, durationHours } =
+    validateReservationDateTime(date, startTime, endTime);
   const guests = Number(partySize) || 1;
 
   const [tables, reservations] = await Promise.all([
@@ -387,26 +388,31 @@ async function getSlotAvailability({
   const startSlots = [];
   for (let m = 480; m <= 1290; m += 30) {
     const timeStr = minutesToTime(m);
-    const free = tables.filter(
-      (t) =>
-        !hasReservationConflict({
-          tableId: t._id,
-          startMinutes: m,
-          endMinutes: m + 30,
-          conflicts,
-        }),
-    );
+    const isPast = !isFutureReservationDateTime(validDate, timeStr);
+    const free = isPast
+      ? []
+      : tables.filter(
+          (t) =>
+            !hasReservationConflict({
+              tableId: t._id,
+              startMinutes: m,
+              endMinutes: m + 30,
+              conflicts,
+            }),
+        );
     startSlots.push({
       time: timeStr,
       timeLabel: formatTime(timeStr),
-      available: free.length > 0,
-      tableCount: free.length,
+      available: !isPast && free.length > 0,
+      tableCount: isPast ? 0 : free.length,
+      isPast,
     });
   }
 
   // End slots for selected startTime (from startTime + 30 to 1320)
   const endSlots = [];
-  if (startTime) {
+  const isStartPast = !isFutureReservationDateTime(validDate, startTime);
+  if (startTime && !isStartPast) {
     const startMin = timeToMinutes(startTime);
     if (startMin !== null && startMin >= 480 && startMin < 1320) {
       for (let m = startMin + 30; m <= 1320; m += 30) {

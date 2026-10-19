@@ -42,6 +42,28 @@ export function formatDurationLabel(minutes: number): string {
   return `${remaining} min`;
 }
 
+/**
+ * Check if the selected date and time is in the past compared to current local time.
+ * If date is in the future, returns false.
+ * If date is today, returns true if slotTime <= current local time.
+ */
+export function isPastReservationDateTime(
+  dateStr?: string,
+  timeStr?: string,
+  now = new Date(),
+): boolean {
+  if (!dateStr || !timeStr) return false;
+  const datePart = dateStr.trim().slice(0, 10);
+  const parts = datePart.split('-').map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return false;
+
+  const [hours, minutes] = String(timeStr).trim().split(':').map(Number);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return false;
+
+  const slotDate = new Date(parts[0], parts[1] - 1, parts[2], hours, minutes, 0, 0);
+  return slotDate.getTime() <= now.getTime();
+}
+
 export type DayPeriodId = 'morning' | 'afternoon' | 'evening';
 
 export interface TimeSlotOption {
@@ -135,6 +157,7 @@ export interface ReservationTimeRangePickerProps {
   isLoading?: boolean;
   selectedTable?: Table | null;
   hourlyRate?: number;
+  selectedDate?: string;
 }
 
 export function ReservationTimeRangePicker({
@@ -147,11 +170,12 @@ export function ReservationTimeRangePicker({
   isLoading = false,
   selectedTable,
   hourlyRate = 300,
+  selectedDate,
 }: ReservationTimeRangePickerProps) {
   const periods = useMemo(() => buildDayPeriods(), []);
 
-  // Active expanded period: default to the period containing current startTime
-  const initialPeriod = useMemo(() => (startTime ? getPeriodForTime(startTime) : 'afternoon'), [startTime]);
+  // Active expanded period: default to the period containing current startTime, or null if none
+  const initialPeriod = useMemo(() => (startTime ? getPeriodForTime(startTime) : null), [startTime]);
   const [expandedPeriod, setExpandedPeriod] = useState<DayPeriodId | null>(initialPeriod);
   const [showBufferInfo, setShowBufferInfo] = useState(false);
 
@@ -177,6 +201,12 @@ export function ReservationTimeRangePicker({
   // Map of duration availability for the chosen start time
   const durationAvailabilityMap = useMemo(() => {
     const map = new Map<number, boolean>();
+    if (!startTime) {
+      for (const opt of DURATION_OPTIONS) {
+        map.set(opt.minutes, false);
+      }
+      return map;
+    }
     const startMin = timeToMinutes(startTime);
 
     for (const opt of DURATION_OPTIONS) {
@@ -210,13 +240,16 @@ export function ReservationTimeRangePicker({
     setExpandedPeriod(getPeriodForTime(newStart));
 
     // Re-evaluate current duration against new start time
-    const newStartMin = timeToMinutes(newStart);
-    const newEndMin = newStartMin + durationMinutes;
-
     if (durationMinutes > 0) {
-      const exceedsClosing = newEndMin > 1320;
-      let isStillAvailable = !exceedsClosing;
+      const newStartMin = timeToMinutes(newStart);
+      const newEndMin = newStartMin + durationMinutes;
 
+      if (newEndMin > 1320 || newEndMin <= newStartMin || durationMinutes < 30) {
+        onDurationChange(0);
+        return;
+      }
+
+      let isStillAvailable = true;
       if (slotData?.endSlots && slotData.endSlots.length > 0) {
         const slot = slotData.endSlots.find((e) => e.durationMinutes === durationMinutes);
         if (slot) {
@@ -263,10 +296,17 @@ export function ReservationTimeRangePicker({
           <View style={styles.activePill}>
             <Ionicons name="time-outline" size={13} color={colors.primary} />
             <AppText variant="caption" style={styles.activePillText}>
-              {formatTimeLabel(startTime)}
+              {formatTimeLabel(startTime)}{endTime && durationMinutes > 0 ? ` – ${formatTimeLabel(endTime)}` : ''}
             </AppText>
           </View>
-        ) : null}
+        ) : (
+          <View style={styles.placeholderPill} testID="placeholder-select-time">
+            <Ionicons name="time-outline" size={13} color={colors.textSecondary} />
+            <AppText variant="caption" style={styles.placeholderPillText}>
+              Select time
+            </AppText>
+          </View>
+        )}
       </View>
 
       <AppText variant="caption" style={styles.subtitle}>
@@ -400,9 +440,11 @@ export function ReservationTimeRangePicker({
                     <View style={styles.gridContainer}>
                       {period.slots.map((st) => {
                         const isSelected = startTime === st.value;
-                        const isAvailable = startSlotAvailabilityMap.has(st.value)
+                        const isPast = isPastReservationDateTime(selectedDate, st.value);
+                        const isBackendAvailable = startSlotAvailabilityMap.has(st.value)
                           ? Boolean(startSlotAvailabilityMap.get(st.value))
                           : true;
+                        const isAvailable = !isPast && isBackendAvailable;
 
                         return (
                           <Pressable
@@ -416,7 +458,7 @@ export function ReservationTimeRangePicker({
                             ]}
                             accessibilityRole="button"
                             accessibilityState={{ selected: isSelected, disabled: !isAvailable }}
-                            accessibilityLabel={`${st.label}${!isAvailable ? ' reserved' : ''}`}
+                            accessibilityLabel={`${st.label}${isPast ? ' past' : !isAvailable ? ' reserved' : ''}`}
                             testID={`slot-${st.value}`}
                           >
                             <AppText
@@ -430,8 +472,12 @@ export function ReservationTimeRangePicker({
                               {st.label}
                             </AppText>
                             {!isAvailable ? (
-                              <AppText variant="caption" style={styles.slotReservedText}>
-                                Reserved
+                              <AppText
+                                variant="caption"
+                                style={styles.slotReservedText}
+                                testID={isPast ? `slot-past-${st.value}` : `slot-reserved-${st.value}`}
+                              >
+                                {isPast ? 'Past' : 'Reserved'}
                               </AppText>
                             ) : null}
                           </Pressable>
@@ -461,7 +507,7 @@ export function ReservationTimeRangePicker({
             </AppText>
           ) : (
             <AppText variant="caption" style={styles.sectionHint}>
-              Select reservation length
+              {startTime ? 'Select reservation length' : 'Select a start time first'}
             </AppText>
           )}
         </View>
@@ -475,7 +521,7 @@ export function ReservationTimeRangePicker({
             const optStartMin = timeToMinutes(startTime);
             const optEndMin = optStartMin + opt.minutes;
             const optEndTime =
-              optEndMin <= 1320 ? formatTimeLabel(minutesToTime(optEndMin)) : null;
+              startTime && optEndMin <= 1320 ? formatTimeLabel(minutesToTime(optEndMin)) : null;
 
             return (
               <Pressable
@@ -503,7 +549,11 @@ export function ReservationTimeRangePicker({
                 >
                   {opt.label}
                 </AppText>
-                {isAvailable && optEndTime ? (
+                {!startTime ? (
+                  <AppText variant="caption" style={styles.unavailableBadge}>
+                    Select time
+                  </AppText>
+                ) : isAvailable && optEndTime ? (
                   <AppText
                     variant="caption"
                     style={[
@@ -591,6 +641,22 @@ const styles = StyleSheet.create({
   activePillText: {
     color: colors.primary,
     fontWeight: '700',
+    fontSize: 12,
+  },
+  placeholderPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+  },
+  placeholderPillText: {
+    color: colors.textSecondary,
+    fontWeight: '600',
     fontSize: 12,
   },
   subtitle: {

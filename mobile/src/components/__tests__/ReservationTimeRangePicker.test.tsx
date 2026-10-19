@@ -9,6 +9,7 @@ import {
   formatDurationLabel,
   buildDayPeriods,
   getPeriodForTime,
+  isPastReservationDateTime,
 } from '../ReservationTimeRangePicker';
 import type { SlotAvailabilityData, Table } from '@/services/api';
 import { colors } from '@/theme';
@@ -79,6 +80,35 @@ describe('ReservationTimeRangePicker helpers', () => {
     expect(getPeriodForTime('16:30')).toBe('afternoon');
     expect(getPeriodForTime('17:00')).toBe('evening');
     expect(getPeriodForTime('21:30')).toBe('evening');
+  });
+
+  describe('isPastReservationDateTime', () => {
+    const fixedNow = new Date(2026, 9, 19, 11, 0, 0); // Oct 19, 2026, 11:00 AM local
+
+    test('returns false for empty or missing inputs', () => {
+      expect(isPastReservationDateTime(undefined, '11:00', fixedNow)).toBe(false);
+      expect(isPastReservationDateTime('2026-10-19', undefined, fixedNow)).toBe(false);
+      expect(isPastReservationDateTime('', '', fixedNow)).toBe(false);
+    });
+
+    test('returns true for past dates (yesterday)', () => {
+      expect(isPastReservationDateTime('2026-10-18', '12:00', fixedNow)).toBe(true);
+      expect(isPastReservationDateTime('2026-10-18', '21:00', fixedNow)).toBe(true);
+    });
+
+    test('on today, returns true for times <= now and false for times > now', () => {
+      expect(isPastReservationDateTime('2026-10-19', '10:00', fixedNow)).toBe(true);
+      expect(isPastReservationDateTime('2026-10-19', '10:30', fixedNow)).toBe(true);
+      expect(isPastReservationDateTime('2026-10-19', '11:00', fixedNow)).toBe(true); // Exact time reached -> past
+      expect(isPastReservationDateTime('2026-10-19', '11:30', fixedNow)).toBe(false); // Future slot -> not past
+      expect(isPastReservationDateTime('2026-10-19', '14:00', fixedNow)).toBe(false);
+    });
+
+    test('returns false for future dates (tomorrow) regardless of clock time', () => {
+      expect(isPastReservationDateTime('2026-10-20', '08:00', fixedNow)).toBe(false);
+      expect(isPastReservationDateTime('2026-10-20', '09:00', fixedNow)).toBe(false);
+      expect(isPastReservationDateTime('2026-10-20', '21:00', fixedNow)).toBe(false);
+    });
   });
 });
 
@@ -283,5 +313,118 @@ describe('ReservationTimeRangePicker collapsible options component', () => {
     // Tap again to collapse
     fireEvent.press(badge);
     expect(screen.queryByText(/table sanitisation and preparation/)).toBeNull();
+  });
+
+  test('renders "Select time" placeholder and disables duration buttons when no start time is selected', () => {
+    render(
+      <ReservationTimeRangePicker
+        startTime=""
+        durationMinutes={0}
+        onStartTimeChange={jest.fn()}
+        onDurationChange={jest.fn()}
+      />,
+    );
+
+    // Placeholder pill in header
+    const pill = screen.getByTestId('placeholder-select-time');
+    expect(pill).toBeTruthy();
+    expect(within(pill).getByText('Select time')).toBeTruthy();
+
+    // Duration buttons are disabled and show "Select time"
+    const dur30 = screen.getByTestId('duration-30');
+    expect(dur30.props.accessibilityState.disabled).toBe(true);
+    expect(within(dur30).getByText('Select time')).toBeTruthy();
+  });
+
+  test('greys out and disables past slots on today, and marks them with Past label', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 9, 19, 11, 0, 0));
+
+    try {
+      render(
+        <ReservationTimeRangePicker
+          startTime=""
+          durationMinutes={0}
+          onStartTimeChange={jest.fn()}
+          onDurationChange={jest.fn()}
+          selectedDate="2026-10-19"
+        />,
+      );
+
+      // Expand Morning period
+      fireEvent.press(screen.getByTestId('period-header-morning'));
+
+      // 08:00 AM, 10:30 AM, 11:00 AM are past
+      const slot08 = screen.getByTestId('slot-08:00');
+      const slot1030 = screen.getByTestId('slot-10:30');
+      const slot1100 = screen.getByTestId('slot-11:00');
+      const slot1130 = screen.getByTestId('slot-11:30');
+
+      expect(slot08.props.accessibilityState.disabled).toBe(true);
+      expect(screen.getByTestId('slot-past-08:00')).toBeTruthy();
+
+      expect(slot1030.props.accessibilityState.disabled).toBe(true);
+      expect(screen.getByTestId('slot-past-10:30')).toBeTruthy();
+
+      expect(slot1100.props.accessibilityState.disabled).toBe(true);
+      expect(screen.getByTestId('slot-past-11:00')).toBeTruthy();
+
+      // 11:30 AM is in the future today -> enabled
+      expect(slot1130.props.accessibilityState.disabled).toBe(false);
+      expect(screen.queryByTestId('slot-past-11:30')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('allows early slots on future dates without disabling or marking as Past', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 9, 19, 15, 0, 0)); // 3:00 PM today
+
+    try {
+      render(
+        <ReservationTimeRangePicker
+          startTime=""
+          durationMinutes={0}
+          onStartTimeChange={jest.fn()}
+          onDurationChange={jest.fn()}
+          selectedDate="2026-10-20" // Tomorrow
+        />,
+      );
+
+      // Expand Morning period
+      fireEvent.press(screen.getByTestId('period-header-morning'));
+
+      const slot08 = screen.getByTestId('slot-08:00');
+      expect(slot08.props.accessibilityState.disabled).toBe(false);
+      expect(screen.queryByTestId('slot-past-08:00')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('revalidates selected duration and clears it when changing start time would violate closing time', () => {
+    const onDurationChange = jest.fn();
+    const onStartTimeChange = jest.fn();
+
+    render(
+      <ReservationTimeRangePicker
+        startTime="12:00"
+        durationMinutes={120} // 2 hrs
+        onStartTimeChange={onStartTimeChange}
+        onDurationChange={onDurationChange}
+        selectedDate="2026-10-20"
+      />,
+    );
+
+    // Expand Evening period (starts collapsed since startTime is in Afternoon)
+    fireEvent.press(screen.getByTestId('period-header-evening'));
+
+    // Select 21:00 (9:00 PM). 21:00 + 120 min = 23:00 > 22:00 closing time -> duration cleared to 0
+    const slot2100 = screen.getByTestId('slot-21:00');
+    fireEvent.press(slot2100);
+
+    expect(onStartTimeChange).toHaveBeenCalledWith('21:00');
+    expect(onDurationChange).toHaveBeenCalledWith(0);
   });
 });

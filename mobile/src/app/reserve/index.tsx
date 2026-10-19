@@ -20,6 +20,7 @@ import {
   ReservationTimeRangePicker,
   minutesToTime,
   timeToMinutes,
+  isPastReservationDateTime,
 } from '@/components/ReservationTimeRangePicker';
 import { useApiQuery } from '@/hooks/useApi';
 import {
@@ -41,7 +42,10 @@ function nextDays(count = 30): { value: string; weekday: string; day: string; mo
   return Array.from({ length: count }, (_, index) => {
     const date = new Date();
     date.setDate(date.getDate() + index);
-    const value = date.toISOString().slice(0, 10);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const value = `${year}-${month}-${day}`;
     return {
       value,
       weekday: date.toLocaleDateString(undefined, { weekday: 'short' }),
@@ -75,8 +79,8 @@ export default function ReserveScreen() {
 
   const [date, setDate] = useState(days[0].value);
   const [partySize, setPartySize] = useState(Number(params.partySize) || 2);
-  const [startTime, setStartTime] = useState<string>('12:00');
-  const [durationMinutes, setDurationMinutes] = useState<number>(90);
+  const [startTime, setStartTime] = useState<string>('');
+  const [durationMinutes, setDurationMinutes] = useState<number>(0);
   const [selectedTableId, setSelectedTableId] = useState<string | null>(params.tableId || null);
   const [isChangingTable, setIsChangingTable] = useState<boolean>(!params.tableId);
   const [specialRequest, setSpecialRequest] = useState('');
@@ -210,15 +214,13 @@ export default function ReserveScreen() {
 
   const slotData = slotAvailabilityQuery.data;
 
-  // Ensure startTime is available; if current is unavailable, auto-select first free
+  // If current startTime becomes unavailable on the selected date/table, clear it
   useEffect(() => {
-    if (slotData?.startSlots && slotData.startSlots.length > 0) {
+    if (startTime && slotData?.startSlots && slotData.startSlots.length > 0) {
       const current = slotData.startSlots.find((s) => s.time === startTime);
       if (current && !current.available) {
-        const firstFree = slotData.startSlots.find((s) => s.available);
-        if (firstFree) {
-          setStartTime(firstFree.time);
-        }
+        setStartTime('');
+        setDurationMinutes(0);
       }
     }
   }, [slotData, startTime]);
@@ -226,31 +228,33 @@ export default function ReserveScreen() {
   // Ensure duration is valid & available when startTime or slotData changes
   useEffect(() => {
     if (durationMinutes > 0) {
+      if (!startTime) {
+        setDurationMinutes(0);
+        return;
+      }
       const startMin = timeToMinutes(startTime);
       const endMin = startMin + durationMinutes;
-      if (endMin > 1320) {
+      if (endMin > 1320 || endMin <= startMin || durationMinutes < 30) {
         setDurationMinutes(0);
         return;
       }
       if (slotData?.endSlots && slotData.endSlots.length > 0) {
         const currentEnd = slotData.endSlots.find((e) => e.durationMinutes === durationMinutes);
         if (currentEnd && !currentEnd.available) {
-          const firstFreeEnd = slotData.endSlots.find((e) => e.available);
-          if (firstFreeEnd && typeof firstFreeEnd.durationMinutes === 'number') {
-            setDurationMinutes(firstFreeEnd.durationMinutes);
-          } else {
-            setDurationMinutes(0);
-          }
+          setDurationMinutes(0);
         }
       }
     }
-  }, [startTime, slotData]);
+  }, [startTime, slotData, durationMinutes]);
 
   const { endTime, durationHours, reservationFee } = useMemo(() => {
+    if (!startTime || !durationMinutes) {
+      return { endTime: '', durationHours: 0, reservationFee: 0 };
+    }
     const startMin = timeToMinutes(startTime);
-    const endMin = Math.min(1320, startMin + (durationMinutes || 0));
+    const endMin = Math.min(1320, startMin + durationMinutes);
     const calculatedEndTime = minutesToTime(endMin);
-    const durHours = (durationMinutes || 0) / 60;
+    const durHours = durationMinutes / 60;
     const hourlyRate = selectedTable?.hourlyReservationRate ?? 300;
     const fee = Math.round(hourlyRate * durHours);
     return { endTime: calculatedEndTime, durationHours: durHours, reservationFee: fee };
@@ -271,6 +275,12 @@ export default function ReserveScreen() {
     }
     if (!durationMinutes || durationMinutes < 30) {
       setFormError('Please select a reservation duration.');
+      return;
+    }
+    if (isPastReservationDateTime(date, startTime)) {
+      setFormError('Selected reservation time has already passed. Please select a future time.');
+      setStartTime('');
+      setDurationMinutes(0);
       return;
     }
     setFormError(null);
@@ -361,6 +371,10 @@ export default function ReserveScreen() {
                         setDate(day.value);
                         setSelectedTableId(null);
                         setFormError(null);
+                        if (startTime && isPastReservationDateTime(day.value, startTime)) {
+                          setStartTime('');
+                          setDurationMinutes(0);
+                        }
                       }}
                       style={[styles.day, selected && styles.dayActive]}
                       accessibilityRole="button"
@@ -568,6 +582,7 @@ export default function ReserveScreen() {
               isLoading={slotAvailabilityQuery.isFetching}
               selectedTable={selectedTable}
               hourlyRate={selectedTable?.hourlyReservationRate ?? 300}
+              selectedDate={date}
             />
 
             {/* 5 — Pre-order food (optional) */}
@@ -694,21 +709,23 @@ export default function ReserveScreen() {
       <View style={styles.footer}>
         <Button
           label={
-            selectedTable && selectedTable.capacity >= partySize && durationMinutes >= 30
+            selectedTable && selectedTable.capacity >= partySize && startTime && durationMinutes >= 30
               ? foodTotal > 0
                 ? `Review booking · Rs. ${reservationFee} + Food LKR ${foodTotal.toLocaleString()}`
                 : `Review booking · Rs. ${reservationFee}`
-              : selectedTable && selectedTable.capacity >= partySize && durationMinutes < 30
-              ? 'Select duration to continue'
-              : 'Select a table to continue'
+              : !selectedTable || isChangingTable || selectedTable.capacity < partySize
+              ? 'Select a table to continue'
+              : !startTime
+              ? 'Select time to continue'
+              : 'Select duration to continue'
           }
           onPress={onReview}
           disabled={
             !selectedTable ||
             isChangingTable ||
             selectedTable.capacity < partySize ||
-            durationMinutes < 30 ||
-            !startTime
+            !startTime ||
+            durationMinutes < 30
           }
           testID="reserve-review"
         />

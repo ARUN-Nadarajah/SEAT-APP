@@ -2,14 +2,18 @@ const { api, fixture } = require('./setup');
 const User = require('../src/models/User');
 const bcrypt = require('bcryptjs');
 
-const today = () => new Date().toISOString().slice(0, 10);
+const futureDate = (days = 1) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+};
 
 async function makeBooking(overrides = {}) {
   const response = await api(fixture.tokens.customer)
     .post('/api/reservations')
     .send({
       restaurantId: fixture.restaurantId,
-      date: today(),
+      date: futureDate(1),
       time: '12:00',
       endTime: '14:00',
       partySize: 2,

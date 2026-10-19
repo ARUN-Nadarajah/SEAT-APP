@@ -18,6 +18,8 @@ const {
   minutesToTime,
   validateReservationTimeRange,
   validateReservationDate,
+  validateReservationDateTime,
+  isFutureReservationDateTime,
   combineDateAndTime,
 } = require("../utils/time");
 const {
@@ -203,10 +205,9 @@ async function resolveTable({ restaurant, date, startTime, endTime, partySize, t
  * authoritatively calculates and snapshots reservation fee.
  * Does NOT permanently mark table status as 'reserved' (Section 1).
  */
-async function createReservation(userId, payload) {
+async function createReservation(userId, payload, now = new Date()) {
   const restaurant = await getRestaurantOrThrow(payload.restaurantId);
 
-  const date = validateReservationDate(payload.date);
   const partySize = Number(payload.partySize) || 0;
 
   if (partySize < 1 || partySize > 20) {
@@ -229,7 +230,12 @@ async function createReservation(userId, payload) {
     endTime = minutesToTime(endMin);
   }
 
-  const { durationMinutes } = validateReservationTimeRange(startTime, endTime);
+  const { date, durationMinutes } = validateReservationDateTime(
+    payload.date,
+    startTime,
+    endTime,
+    now,
+  );
 
   // Concurrency safety (Section 21 concurrent booking test case)
   const lockKey = `${payload.tableId || "any"}:${date.toISOString().slice(0, 10)}`;
@@ -574,7 +580,6 @@ async function updateReservation(id, requestingUser, payload) {
 
   const restaurant = await getRestaurantOrThrow(reservation.restaurantId);
 
-  const date = payload.date ? validateReservationDate(payload.date) : reservation.date;
   const startTime = String(payload.startTime || payload.time || reservation.time).trim();
   const partySize = Number(payload.partySize) || reservation.partySize;
 
@@ -597,8 +602,9 @@ async function updateReservation(id, requestingUser, payload) {
     }
   }
 
-  const { startMinutes, endMinutes, durationMinutes, durationHours } =
-    validateReservationTimeRange(startTime, endTime);
+  const dateValue = payload.date || reservation.date;
+  const { date, startMinutes, endMinutes, durationMinutes, durationHours } =
+    validateReservationDateTime(dateValue, startTime, endTime, now);
 
   // Free the current reservation before re-checking so self-changes never clash (Section 17).
   const conflicts = (await loadBlockingReservations(restaurant._id, date)).filter(

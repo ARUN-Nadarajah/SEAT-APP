@@ -54,9 +54,18 @@ function toDateString(value) {
   return date.toISOString().slice(0, 10);
 }
 
+/** Format Date into "YYYY-MM-DD" using local calendar components. */
+function localDateString(d = new Date()) {
+  const date = d instanceof Date ? d : new Date(d);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 /** Today at UTC midnight — used as the default booking date. */
 function today() {
-  return normalizeDate(new Date().toISOString().slice(0, 10));
+  return normalizeDate(localDateString(new Date()));
 }
 
 /**
@@ -189,7 +198,7 @@ function validateReservationDate(dateValue, now = new Date()) {
     throw new AppError("Please choose a valid date (YYYY-MM-DD).", 400, "validation_error");
   }
 
-  const todayMidnight = normalizeDate(now.toISOString().slice(0, 10));
+  const todayMidnight = normalizeDate(localDateString(now));
   if (date.getTime() < todayMidnight.getTime()) {
     const { AppError } = require("./errors");
     throw new AppError("Bookings cannot be made in the past.", 400, "validation_error");
@@ -229,6 +238,83 @@ function combineDateAndTime(date, timeString) {
   );
 }
 
+/**
+ * Converts a date ("YYYY-MM-DD" or Date) and 24h time ("HH:mm") into a local Date.
+ */
+function parseLocalDateTime(dateValue, timeString) {
+  let year;
+  let month;
+  let day;
+
+  if (typeof dateValue === "string") {
+    const trimmed = dateValue.trim().slice(0, 10);
+    const parts = trimmed.split("-").map(Number);
+    if (parts.length !== 3 || parts.some(Number.isNaN)) return null;
+    [year, month, day] = parts;
+  } else if (dateValue instanceof Date && !Number.isNaN(dateValue.getTime())) {
+    if (
+      dateValue.getUTCHours() === 0 &&
+      dateValue.getUTCMinutes() === 0 &&
+      dateValue.getUTCSeconds() === 0
+    ) {
+      year = dateValue.getUTCFullYear();
+      month = dateValue.getUTCMonth() + 1;
+      day = dateValue.getUTCDate();
+    } else {
+      year = dateValue.getFullYear();
+      month = dateValue.getMonth() + 1;
+      day = dateValue.getDate();
+    }
+  } else {
+    return null;
+  }
+
+  const minutes = timeToMinutes(timeString);
+  if (minutes === null) return null;
+
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  return new Date(year, month - 1, day, hours, mins, 0, 0);
+}
+
+/**
+ * Checks if the reservation date and start time is strictly in the future.
+ * Conceptually: selectedStartDateTime > currentDateTime
+ */
+function isFutureReservationDateTime(dateValue, timeString, now = new Date()) {
+  const startDateTime = parseLocalDateTime(dateValue, timeString);
+  if (!startDateTime) return false;
+  const current = now instanceof Date ? now : new Date(now);
+  return startDateTime.getTime() > current.getTime();
+}
+
+/**
+ * Validates complete reservation date and time range:
+ * - Date within [today, today + 30 days]
+ * - Start & end times within operating hours (08:00 - 22:00) in 30-min steps
+ * - end > start, duration >= 30 min
+ * - selectedStartDateTime > currentDateTime (cannot book in the past)
+ */
+function validateReservationDateTime(dateValue, startTime, endTime, now = new Date()) {
+  const date = validateReservationDate(dateValue, now);
+  const timeRange = validateReservationTimeRange(startTime, endTime);
+
+  if (!isFutureReservationDateTime(dateValue, startTime, now)) {
+    const { AppError } = require("./errors");
+    throw new AppError(
+      "Reservation start time cannot be in the past.",
+      400,
+      "validation_error",
+    );
+  }
+
+  return {
+    date,
+    ...timeRange,
+  };
+}
+
 module.exports = {
   HHMM,
   timeToMinutes,
@@ -250,5 +336,9 @@ module.exports = {
   MAX_ADVANCE_DAYS,
   validateReservationTimeRange,
   validateReservationDate,
+  validateReservationDateTime,
+  parseLocalDateTime,
+  isFutureReservationDateTime,
   combineDateAndTime,
+  localDateString,
 };

@@ -13,6 +13,7 @@ import {
   useFeedback,
 } from '@/components/ui';
 import { useApiQuery } from '@/hooks/useApi';
+import { isPastReservationDateTime } from '@/components/ReservationTimeRangePicker';
 import { apiErrorMessage, createBooking, fetchRestaurant } from '@/services/api';
 import { parseSlotUnavailable } from '@/services/api/reservations.api';
 import { colors, radius, spacing } from '@/theme';
@@ -73,8 +74,8 @@ export default function ReviewScreen() {
   const grandTotal = tableFee + foodTotal;
 
   const partySize = Number(params.partySize) || 2;
-  const startTime = params.startTime || params.time || '12:00';
-  const endTime = params.endTime || '13:30';
+  const startTime = params.startTime || params.time || '';
+  const endTime = params.endTime || '';
 
   const startMin = timeStrToMinutes(startTime);
   const endMin = timeStrToMinutes(endTime);
@@ -103,6 +104,20 @@ export default function ReviewScreen() {
     setSubmitting(true);
     setError(null);
     setAlternatives([]);
+
+    if (!startTime || !endTime) {
+      setError('Please select valid start and end times for your reservation.');
+      showToast('Start and end times are required.', 'error');
+      setSubmitting(false);
+      return;
+    }
+
+    if (isPastReservationDateTime(params.date, startTime)) {
+      setError('The selected reservation time has already passed. Please go back and choose a future time.');
+      showToast('Reservation time has passed.', 'error');
+      setSubmitting(false);
+      return;
+    }
 
     try {
       const result = await createBooking({
