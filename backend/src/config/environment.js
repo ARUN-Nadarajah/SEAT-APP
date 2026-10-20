@@ -39,14 +39,9 @@ module.exports = {
   // --- CORS ---
   CORS_ORIGIN: env("CORS_ORIGIN", "*"),
 
-  // --- Email (Resend HTTP API or nodemailer SMTP) ---
-  RESEND_API_KEY: env("RESEND_API_KEY", ""),
-  SMTP_HOST: env("SMTP_HOST", ""),
-  SMTP_PORT: intEnv("SMTP_PORT", 587),
-  SMTP_SECURE: env("SMTP_SECURE", "false") === "true",
-  SMTP_USER: env("SMTP_USER", ""),
-  SMTP_PASS: env("SMTP_PASS", ""),
-  SMTP_CONNECTION_TIMEOUT_MS: intEnv("SMTP_CONNECTION_TIMEOUT_MS", 5000),
+  // --- Email (Mailjet HTTP API) ---
+  MAILJET_API_KEY: env("MAILJET_API_KEY", ""),
+  MAILJET_SECRET_KEY: env("MAILJET_SECRET_KEY", ""),
   EMAIL_FROM: env("EMAIL_FROM", "SEAT App <no-reply@seat-app.local>"),
 
   // --- Push notifications (Expo) ---

@@ -1,126 +1,243 @@
-const nodemailer = require("nodemailer");
-
 const {
   NODE_ENV,
-  RESEND_API_KEY,
-  SMTP_HOST,
-  SMTP_PORT,
-  SMTP_SECURE,
-  SMTP_USER,
-  SMTP_PASS,
-  SMTP_CONNECTION_TIMEOUT_MS,
+  MAILJET_API_KEY,
+  MAILJET_SECRET_KEY,
   EMAIL_FROM,
 } = require("../config/environment");
 
-let cachedTransporter = null;
+const MAILJET_SEND_ENDPOINT = "https://api.mailjet.com/v3.1/send";
 
-function hasResendConfiguration() {
-  return Boolean(RESEND_API_KEY);
+/**
+ * Retrieve Mailjet API credentials from runtime environment or loaded config.
+ */
+function getCredentials() {
+  const apiKey = (
+    process.env.MAILJET_API_KEY !== undefined
+      ? process.env.MAILJET_API_KEY
+      : MAILJET_API_KEY || ""
+  ).trim();
+  const secretKey = (
+    process.env.MAILJET_SECRET_KEY !== undefined
+      ? process.env.MAILJET_SECRET_KEY
+      : MAILJET_SECRET_KEY || ""
+  ).trim();
+  return { apiKey, secretKey };
 }
 
-function hasSmtpConfiguration() {
-  const host = process.env.SMTP_HOST || SMTP_HOST;
-  const user = process.env.SMTP_USER || SMTP_USER;
-  const pass = process.env.SMTP_PASS || SMTP_PASS;
-  return Boolean(host && user && pass);
+function getSenderEmail(customFrom) {
+  if (customFrom) return customFrom;
+  return process.env.EMAIL_FROM !== undefined ? process.env.EMAIL_FROM : EMAIL_FROM;
 }
 
-function getTransporter() {
-  if (!hasSmtpConfiguration()) {
-    return null;
+/**
+ * Check whether valid Mailjet credentials are configured.
+ */
+function hasMailjetConfiguration() {
+  const { apiKey, secretKey } = getCredentials();
+  return Boolean(apiKey && secretKey);
+}
+
+/**
+ * Parse a single email entry or string (e.g. "Name <email@example.com>" or "email@example.com").
+ * Returns { Email, Name } compatible with Mailjet v3.1 API.
+ */
+function parseEmail(input, fallbackName = "") {
+  if (!input) return null;
+
+  if (typeof input === "object") {
+    const email = (input.Email || input.email || "").trim();
+    const name = (input.Name || input.name || fallbackName || "").trim();
+    if (!email) return null;
+    return {
+      Email: email,
+      ...(name ? { Name: name } : {}),
+    };
   }
 
-  if (!cachedTransporter) {
-    const host = process.env.SMTP_HOST || SMTP_HOST;
-    const port = Number(process.env.SMTP_PORT || SMTP_PORT) || 587;
-    // For port 587, STARTTLS requires secure: false.
-    const isPort587 = port === 587;
-    const secure = isPort587
-      ? false
-      : port === 465 || process.env.SMTP_SECURE === "true" || SMTP_SECURE === true;
-    const user = process.env.SMTP_USER || SMTP_USER;
-    const pass = process.env.SMTP_PASS || SMTP_PASS;
+  const str = String(input).trim();
+  const match = str.match(/^(?:(.*?)<)?([^<>@\s]+@[^<>@\s]+)>?$/);
+  if (match) {
+    const rawName = (match[1] || "").trim().replace(/^["']|["']$/g, "");
+    const email = match[2].trim();
+    const name = rawName || fallbackName;
+    return {
+      Email: email,
+      ...(name ? { Name: name } : {}),
+    };
+  }
 
-    cachedTransporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user,
-        pass,
+  return {
+    Email: str,
+    ...(fallbackName ? { Name: fallbackName } : {}),
+  };
+}
+
+/**
+ * Normalizes input recipients into an array of Mailjet recipient objects: [{ Email, Name? }].
+ */
+function formatRecipients(to, fallbackName = "") {
+  const list = Array.isArray(to) ? to : [to];
+  const formatted = [];
+  for (const item of list) {
+    const parsed = parseEmail(item, fallbackName);
+    if (parsed && parsed.Email) {
+      formatted.push(parsed);
+    }
+  }
+  return formatted;
+}
+
+/**
+ * Sends an email via Mailjet Send API v3.1 (HTTP Basic Auth).
+ */
+async function sendViaMailjet({ to, subject, text, html, name, from }) {
+  const { apiKey, secretKey } = getCredentials();
+  if (!apiKey || !secretKey) {
+    throw new Error(
+      "Mailjet API credentials (MAILJET_API_KEY and MAILJET_SECRET_KEY) are missing.",
+    );
+  }
+
+  const recipients = formatRecipients(to, name);
+  if (recipients.length === 0) {
+    throw new Error("Cannot send email: No valid recipient email address provided.");
+  }
+
+  const sender = parseEmail(getSenderEmail(from), "SEAT App");
+  if (!sender || !sender.Email) {
+    throw new Error("Cannot send email: Invalid sender address configured.");
+  }
+
+  const message = {
+    From: sender,
+    To: recipients,
+    Subject: subject || "(No Subject)",
+  };
+
+  if (text) {
+    message.TextPart = text;
+  }
+  if (html) {
+    message.HTMLPart = html;
+  }
+  // Mailjet v3.1 requires at least one content part
+  if (!text && !html) {
+    message.TextPart = subject || "";
+  }
+
+  const recipientSummary = recipients.map((r) => r.Email).join(", ");
+  const authHeader = `Basic ${Buffer.from(`${apiKey}:${secretKey}`).toString("base64")}`;
+
+  console.info(`[mailjet:send] Dispatching email to ${recipientSummary} | Subject: "${message.Subject}"`);
+
+  let response;
+  try {
+    response = await fetch(MAILJET_SEND_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: authHeader,
+        "Content-Type": "application/json",
       },
-      family: 4, // Force IPv4 to prevent ENETUNREACH errors on hosts without IPv6 routing
-      connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
-      greetingTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
-      socketTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || SMTP_CONNECTION_TIMEOUT_MS) || 10000,
+      body: JSON.stringify({
+        Messages: [message],
+      }),
     });
+  } catch (networkError) {
+    console.error(`[mailjet:error] Network request failed for ${recipientSummary}: ${networkError.message}`);
+    throw new Error(`Mailjet network connection failed: ${networkError.message}`);
   }
 
-  return cachedTransporter;
-}
-
-async function sendViaResend({ to, subject, text, html }) {
-  const fromAddress = EMAIL_FROM.includes("<") ? EMAIL_FROM : `Seat App <${EMAIL_FROM}>`;
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: fromAddress,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      text: text || undefined,
-      html: html || undefined,
-    }),
-  });
+  const rawBody = await response.text();
+  let parsedBody = null;
+  try {
+    parsedBody = JSON.parse(rawBody);
+  } catch {
+    parsedBody = null;
+  }
 
   if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`Resend API error (${response.status}): ${errorBody}`);
+    let errorDetail = "";
+    if (parsedBody) {
+      if (parsedBody.ErrorMessage) {
+        errorDetail = `${parsedBody.ErrorMessage}${parsedBody.ErrorCode ? ` [${parsedBody.ErrorCode}]` : ""}`;
+      } else if (Array.isArray(parsedBody.Messages) && parsedBody.Messages[0]?.Errors) {
+        errorDetail = parsedBody.Messages[0].Errors.map(
+          (err) => `${err.ErrorMessage}${err.ErrorCode ? ` [${err.ErrorCode}]` : ""}`,
+        ).join("; ");
+      } else {
+        errorDetail = JSON.stringify(parsedBody);
+      }
+    } else {
+      errorDetail = rawBody || response.statusText;
+    }
+
+    const errorMessage = `Mailjet API error (${response.status}): ${errorDetail}`;
+    console.error(`[mailjet:error] ${errorMessage} (To: ${recipientSummary})`);
+    throw new Error(errorMessage);
   }
 
-  const data = await response.json();
-  return { messageId: data.id };
+  // Response status is 200, but message-level validation inside Messages array can still have failed
+  const messageResult = parsedBody?.Messages?.[0];
+  if (messageResult && messageResult.Status === "error") {
+    const errorDetail =
+      messageResult.Errors?.map(
+        (err) => `${err.ErrorMessage}${err.ErrorCode ? ` [${err.ErrorCode}]` : ""}`,
+      ).join("; ") || "Unknown Mailjet message error";
+    const errorMessage = `Mailjet message rejected: ${errorDetail}`;
+    console.error(`[mailjet:error] ${errorMessage} (To: ${recipientSummary})`);
+    throw new Error(errorMessage);
+  }
+
+  const firstTo = messageResult?.To?.[0];
+  const messageId = firstTo?.MessageID
+    ? String(firstTo.MessageID)
+    : firstTo?.MessageUUID || "mailjet-sent";
+
+  console.info(`[mailjet:success] Delivered email to ${recipientSummary} | MessageID: ${messageId}`);
+
+  return {
+    messageId,
+    status: "success",
+    data: parsedBody,
+  };
 }
 
-async function sendMail({ to, subject, text, html }) {
-  // 1. Prefer HTTP-based email (Resend) - immune to Render free-tier SMTP port blocking
-  if (hasResendConfiguration()) {
-    return sendViaResend({ to, subject, text, html });
+/**
+ * Unified sendMail function.
+ * Uses Mailjet HTTP API when credentials are present.
+ * In development without credentials, logs to console for developer convenience.
+ * In production without credentials, throws an error.
+ */
+async function sendMail({ to, subject, text, html, name, from }) {
+  if (hasMailjetConfiguration()) {
+    return sendViaMailjet({ to, subject, text, html, name, from });
   }
 
-  // 2. Nodemailer SMTP (e.g. custom relay or paid plan where ports 465/587 are open)
-  const transporter = getTransporter();
+  const currentEnv = process.env.NODE_ENV || NODE_ENV;
+  const isStrict = process.env.STRICT_EMAIL === "true";
 
-  if (transporter) {
-    return transporter.sendMail({
-      from: EMAIL_FROM,
-      to,
-      subject,
-      text,
-      html,
-    });
+  if (currentEnv === "production" || isStrict) {
+    const errorMsg = "Mailjet API credentials (MAILJET_API_KEY, MAILJET_SECRET_KEY) are not configured.";
+    console.error(`[mailjet:error] ${errorMsg}`);
+    throw new Error(errorMsg);
   }
 
-  // 3. Fallback when neither provider is configured
-  if ((process.env.NODE_ENV || NODE_ENV) === "production" && process.env.STRICT_EMAIL === "true") {
-    throw new Error("No email service configured (set RESEND_API_KEY or SMTP credentials).");
+  const recipientSummary = Array.isArray(to) ? to.join(", ") : String(to);
+  console.info(`[mailjet:fallback] Simulated email to ${recipientSummary} (Subject: "${subject}")`);
+  if (text) {
+    console.info(`[mailjet:fallback] Body: ${text}`);
   }
 
-  if ((process.env.NODE_ENV || NODE_ENV) !== "production") {
-    console.info(`[mail:fallback] To: ${to} | Subject: ${subject}`);
-    if (text) {
-      console.info(`[mail:fallback] Body: ${text}`);
-    }
-  } else {
-    console.info(`[mail:fallback] Simulated email to ${to} (Subject: ${subject})`);
-  }
-  return { messageId: "fallback-console" };
+  return {
+    messageId: "fallback-console",
+    status: "simulated",
+  };
 }
 
 module.exports = {
   sendMail,
+  sendViaMailjet,
+  hasMailjetConfiguration,
+  formatRecipients,
+  parseEmail,
 };
-
